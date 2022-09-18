@@ -32,19 +32,24 @@ class SurrealAsyncClient:
     def __init__(
         self, uri: str, namespace: str, database: str, *, username: str, password: str
     ) -> None:
-        self.__session = aiohttp.ClientSession(auth=BasicAuth(username, password),headers={
+        self.__session = aiohttp.ClientSession(
+            auth=BasicAuth(username, password),
+            headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "NS": namespace,
                 "DB": database,
-            })
+            },
+        )
         self.__uri = uri
         self.__baseurl = base_url(uri)
-        
+
         self.__ns = namespace
         self.__db = database
+
     async def check(self):
         return await self.__check()
+
     @property
     def ns(self) -> str:
         return self.__ns
@@ -89,7 +94,6 @@ class SurrealAsyncClient:
             else:
                 logger.error(respText)
                 return None
-        
 
     async def __get(self, *extends) -> Union[dict, list]:
         extend_uri = self.__baseurl + "/" + "/".join(extends)
@@ -100,35 +104,69 @@ class SurrealAsyncClient:
             else:
                 return None
 
-    
-    
-    def  __transform_into_sql_val(val):
-        if isinstance(val,str):
+    def __transform_into_sql_val(val):
+        if isinstance(val, str):
             return "'%s'" % val
         return val
+
     async def raw_query(self, query: str) -> Union[dict, list]:
         # execute a raw query
         return await self.__post("sql", query=query)
+
     async def mapped_query(self, query: str) -> SurrealResponse:
         # execute a mapped query
         return SurrealResponse(results=self.raw_query(query))
-    async def query(self, query: str,**kwargs) -> Union[dict, list]:
+
+    async def query(self, query: str, **kwargs) -> Union[dict, list]:
         # query the database
         return await self.mapped_query(query.format(**kwargs))
-    async def let(self,key,val):
-        return await self.mapped_query("LET ${}={}".format(key,self.__transform_into_sql_val(val)))
-    async def select(self,tid:str):
+
+    async def let(self, key, val):
+        return await self.mapped_query(
+            "LET ${}={}".format(key, self.__transform_into_sql_val(val))
+        )
+
+    async def select(self, tid: str):
         """tid can be a table name or a record id"""
         return await self.mapped_query("SELECT * FROM {}".format(tid))
-    async def create(self,tid:str,data: Optional[dict] = None):
-        return await self.mapped_query(f"CREATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}") if data is not None else self.mapped_query(f"CREATE {tid}")
-    async def update(self,tid:str,data: Optional[dict] = None):
-        return await self.mapped_query(f"UPDATE {tid}") if data is not None else self.mapped_query(f"UPDATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}")
-    async def change(self,tid:str,data: Optional[dict] = None):
-        return await self.mapped_query(f"UPDATE {tid}") if data is not None else self.mapped_query(f"UPDATE {tid} MERGE {orjson.dumps(data).decode('utf-8')}")
-    async def modify(self,tid:str,data: Optional[dict] = None):
-        return await self.mapped_query(f"UPDATE {tid}") if data is not None else self.mapped_query(f"UPDATE {tid} PATCH {orjson.dumps(data).decode('utf-8')}")
-    async def delete(self,tid:str):
+
+    async def create(self, tid: str, data: Optional[dict] = None):
+        return (
+            await self.mapped_query(
+                f"CREATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
+            )
+            if data is not None
+            else self.mapped_query(f"CREATE {tid}")
+        )
+
+    async def update(self, tid: str, data: Optional[dict] = None):
+        return (
+            await self.mapped_query(f"UPDATE {tid}")
+            if data is not None
+            else self.mapped_query(
+                f"UPDATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
+            )
+        )
+
+    async def change(self, tid: str, data: Optional[dict] = None):
+        return (
+            await self.mapped_query(f"UPDATE {tid}")
+            if data is not None
+            else self.mapped_query(
+                f"UPDATE {tid} MERGE {orjson.dumps(data).decode('utf-8')}"
+            )
+        )
+
+    async def modify(self, tid: str, data: Optional[dict] = None):
+        return (
+            await self.mapped_query(f"UPDATE {tid}")
+            if data is not None
+            else self.mapped_query(
+                f"UPDATE {tid} PATCH {orjson.dumps(data).decode('utf-8')}"
+            )
+        )
+
+    async def delete(self, tid: str):
         return await self.mapped_query(f"DELETE * FROM {tid}")
 
 
@@ -209,7 +247,6 @@ class SurrealClient:
             else:
                 logger.error(response.text)
                 return None
-    
 
     def __get(self, *extends) -> Union[dict, list]:
         extend_uri = self.__baseurl + "/" + "/".join(extends)
@@ -220,33 +257,67 @@ class SurrealClient:
             else:
                 return None
 
-        
-    def  __transform_into_sql_val(val):
-        if isinstance(val,str):
+    def __transform_into_sql_val(val):
+        if isinstance(val, str):
             return "'%s'" % val
         return val
+
     def raw_query(self, query: str) -> Union[dict, list]:
         # execute a raw query
         return self.__post("sql", query=query)
+
     def mapped_query(self, query: str) -> SurrealResponse:
         # execute a mapped query
         return SurrealResponse(results=self.raw_query(query))
-    def query(self, query: str,**kwargs) -> Union[dict, list]:
+
+    def query(self, query: str, **kwargs) -> Union[dict, list]:
         # query the database
         return self.mapped_query(query.format(**kwargs))
-    def let(self,key,val):
-        return self.mapped_query("LET ${}={}".format(key,self.__transform_into_sql_val(val)))
-    def select(self,tid:str):
+
+    def let(self, key, val):
+        return self.mapped_query(
+            "LET ${}={}".format(key, self.__transform_into_sql_val(val))
+        )
+
+    def select(self, tid: str):
         """tid can be a table name or a record id"""
         return self.mapped_query("SELECT * FROM {}".format(tid))
-    def create(self,tid:str,data: Optional[dict] = None):
-        return self.mapped_query(f"CREATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}") if data is not None else self.mapped_query(f"CREATE {tid}")
-    def update(self,tid:str,data: Optional[dict] = None):
-        return self.mapped_query(f"UPDATE {tid}") if data is not None else self.mapped_query(f"UPDATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}")
-    def change(self,tid:str,data: Optional[dict] = None):
-        return self.mapped_query(f"UPDATE {tid}") if data is not None else self.mapped_query(f"UPDATE {tid} MERGE {orjson.dumps(data).decode('utf-8')}")
-    def modify(self,tid:str,data: Optional[dict] = None):
-        return self.mapped_query(f"UPDATE {tid}") if data is not None else self.mapped_query(f"UPDATE {tid} PATCH {orjson.dumps(data).decode('utf-8')}")
-    def delete(self,tid:str):
+
+    def create(self, tid: str, data: Optional[dict] = None):
+        return (
+            self.mapped_query(
+                f"CREATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
+            )
+            if data is not None
+            else self.mapped_query(f"CREATE {tid}")
+        )
+
+    def update(self, tid: str, data: Optional[dict] = None):
+        return (
+            self.mapped_query(f"UPDATE {tid}")
+            if data is not None
+            else self.mapped_query(
+                f"UPDATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
+            )
+        )
+
+    def change(self, tid: str, data: Optional[dict] = None):
+        return (
+            self.mapped_query(f"UPDATE {tid}")
+            if data is not None
+            else self.mapped_query(
+                f"UPDATE {tid} MERGE {orjson.dumps(data).decode('utf-8')}"
+            )
+        )
+
+    def modify(self, tid: str, data: Optional[dict] = None):
+        return (
+            self.mapped_query(f"UPDATE {tid}")
+            if data is not None
+            else self.mapped_query(
+                f"UPDATE {tid} PATCH {orjson.dumps(data).decode('utf-8')}"
+            )
+        )
+
+    def delete(self, tid: str):
         return self.mapped_query(f"DELETE * FROM {tid}")
-    
