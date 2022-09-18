@@ -1,2 +1,3 @@
 # SurrealPy
- A SurrealDb client for python
+ An UnOfficial SurrealDb http client for python
+ 
