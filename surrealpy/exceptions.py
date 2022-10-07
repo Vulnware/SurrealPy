@@ -1,17 +1,11 @@
+from typing import Any
+
+
 class BaseException(Exception):
     """Base class for all exceptions in this module."""
 
-    pass
-
-
-class ConnectionError(BaseException):
-    """Exception raised for errors in the connection.
-    Attributes:
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
+    def __str__(self) -> str:
+        return self.message
 
 
 class SurrealError(BaseException):
@@ -24,7 +18,27 @@ class SurrealError(BaseException):
         self.message = message
 
 
-class SurrealStatementHeadError(BaseException):
+class ConnectionError(SurrealError):
+    """Exception raised for errors in the connection.
+    Attributes:
+        message -- explanation of the error
+    """
+
+    def __init__(self, message):
+        self.message = message
+
+
+class WebSocketError(SurrealError):
+    """Exception raised for errors in the websocket.
+    Attributes:
+        message -- explanation of the error
+    """
+
+    def __init__(self, message: dict[str, Any]):
+        self.message = f"{message['message']} ({message['code']})"
+
+
+class SurrealStatementHeadError(SurrealError):
     """Exception raised for errors in the head of the statement.
     Attributes:
         message -- explanation of the error
@@ -34,7 +48,7 @@ class SurrealStatementHeadError(BaseException):
         self.message = message
 
 
-class EmptyStatementError(BaseException):
+class EmptyStatementError(SurrealError):
     """Exception raised for errors in the head of the statement.
     Attributes:
         message -- explanation of the error

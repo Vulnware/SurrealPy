@@ -1,13 +1,14 @@
+import sys
 from typing import Optional, Union
 import requests
 from requests.auth import HTTPBasicAuth
-import orjson
 import logging
 import urllib.parse
-from surrealpy.models import SurrealResponse
+from surrealpy.http.models import SurrealResponse
 import aiohttp
 from aiohttp import BasicAuth
 from surrealpy.exceptions import ConnectionError, SurrealError
+from surrealpy.utils import json_dumps, json_loads
 
 
 def base_url(url, with_path=False):
@@ -71,15 +72,11 @@ class SurrealAsyncClient:
         return self.__uri
 
     async def __check(self):
-        try:
-            async with self.__session.head(self.uri) as resp:
-                if resp.status == 200:
-                    return True
-                else:
-                    return False
-        except Exception as e:
-            logger.error("Error while checking database for %s: %s", self.uri, e)
-            return False
+        async with self.__session.head(self.uri) as resp:
+            if resp.status == 200:
+                return True
+            else:
+                return False
 
     async def __post(self, *extends, query: str) -> Union[dict, list]:
         extend_uri = self.__baseurl + "/" + "/".join(extends)
@@ -87,10 +84,10 @@ class SurrealAsyncClient:
             respText = await response.text()
             logger.debug(respText)
             if response.status == 200:
-                return orjson.loads(respText)
+                return json_loads(respText)
             elif response.status == 400:
                 logger.error(respText)
-                raise SurrealError(orjson.loads(respText)["information"])
+                raise SurrealError(json_loads(respText)["information"])
             else:
                 logger.error(respText)
                 return None
@@ -100,7 +97,7 @@ class SurrealAsyncClient:
         async with self.__session.get(extend_uri) as response:
             respText = await response.text()
             if response.status == 200:
-                return orjson.loads(respText)
+                return json_loads(respText)
             else:
                 return None
 
@@ -115,7 +112,8 @@ class SurrealAsyncClient:
 
     async def mapped_query(self, query: str) -> SurrealResponse:
         # execute a mapped query
-        return SurrealResponse(results=self.raw_query(query))
+
+        return SurrealResponse(self.raw_query(query))
 
     async def query(self, query: str, **kwargs) -> Union[dict, list]:
         # query the database
@@ -132,9 +130,7 @@ class SurrealAsyncClient:
 
     async def create(self, tid: str, data: Optional[dict] = None):
         return (
-            await self.mapped_query(
-                f"CREATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
-            )
+            await self.mapped_query(f"CREATE {tid} CONTENT {json_dumps(data)}")
             if data is not None
             else self.mapped_query(f"CREATE {tid}")
         )
@@ -143,27 +139,21 @@ class SurrealAsyncClient:
         return (
             await self.mapped_query(f"UPDATE {tid}")
             if data is not None
-            else self.mapped_query(
-                f"UPDATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
-            )
+            else self.mapped_query(f"UPDATE {tid} CONTENT {json_dumps(data)}")
         )
 
     async def change(self, tid: str, data: Optional[dict] = None):
         return (
             await self.mapped_query(f"UPDATE {tid}")
             if data is not None
-            else self.mapped_query(
-                f"UPDATE {tid} MERGE {orjson.dumps(data).decode('utf-8')}"
-            )
+            else self.mapped_query(f"UPDATE {tid} MERGE {json_dumps(data)}")
         )
 
     async def modify(self, tid: str, data: Optional[dict] = None):
         return (
             await self.mapped_query(f"UPDATE {tid}")
             if data is not None
-            else self.mapped_query(
-                f"UPDATE {tid} PATCH {orjson.dumps(data).decode('utf-8')}"
-            )
+            else self.mapped_query(f"UPDATE {tid} PATCH {json_dumps(data)}")
         )
 
     async def delete(self, tid: str):
@@ -203,7 +193,7 @@ class SurrealClient:
     @property
     def tables(self) -> Union[dict, list]:
         # retrieve all tables
-        data = self.__query("INFO FOR DB;")
+        data = self.raw_query("INFO FOR DB;")
         for i in data[0]["result"]["tb"].keys():
             yield i
 
@@ -240,10 +230,10 @@ class SurrealClient:
         with self.__session.post(extend_uri, data=query) as response:
             logger.debug(response.text)
             if response.status_code == 200:
-                return orjson.loads(response.text)
+                return json_loads(response.text)
             elif response.status_code == 400:
                 logger.error(response.text)
-                raise ParseError(orjson.loads(response.text)["information"])
+                raise SurrealError(json_loads(response.text)["information"])
             else:
                 logger.error(response.text)
                 return None
@@ -253,7 +243,7 @@ class SurrealClient:
         with self.__session.get(extend_uri) as response:
             logger.debug(response.text)
             if response.status_code == 200:
-                return orjson.loads(response.text)
+                return json_loads(response.text)
             else:
                 return None
 
@@ -268,7 +258,7 @@ class SurrealClient:
 
     def mapped_query(self, query: str) -> SurrealResponse:
         # execute a mapped query
-        return SurrealResponse(results=self.raw_query(query))
+        return SurrealResponse(self.raw_query(query))
 
     def query(self, query: str, **kwargs) -> Union[dict, list]:
         # query the database
@@ -285,9 +275,7 @@ class SurrealClient:
 
     def create(self, tid: str, data: Optional[dict] = None):
         return (
-            self.mapped_query(
-                f"CREATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
-            )
+            self.mapped_query(f"CREATE {tid} CONTENT {json_dumps(data)}")
             if data is not None
             else self.mapped_query(f"CREATE {tid}")
         )
@@ -296,27 +284,21 @@ class SurrealClient:
         return (
             self.mapped_query(f"UPDATE {tid}")
             if data is not None
-            else self.mapped_query(
-                f"UPDATE {tid} CONTENT {orjson.dumps(data).decode('utf-8')}"
-            )
+            else self.mapped_query(f"UPDATE {tid} CONTENT {json_dumps(data)}")
         )
 
     def change(self, tid: str, data: Optional[dict] = None):
         return (
             self.mapped_query(f"UPDATE {tid}")
             if data is not None
-            else self.mapped_query(
-                f"UPDATE {tid} MERGE {orjson.dumps(data).decode('utf-8')}"
-            )
+            else self.mapped_query(f"UPDATE {tid} MERGE {json_dumps(data)}")
         )
 
     def modify(self, tid: str, data: Optional[dict] = None):
         return (
             self.mapped_query(f"UPDATE {tid}")
             if data is not None
-            else self.mapped_query(
-                f"UPDATE {tid} PATCH {orjson.dumps(data).decode('utf-8')}"
-            )
+            else self.mapped_query(f"UPDATE {tid} PATCH {json_dumps(data)}")
         )
 
     def delete(self, tid: str):
