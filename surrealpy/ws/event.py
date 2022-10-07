@@ -1,4 +1,5 @@
 import enum
+from functools import partial
 from types import NoneType
 from typing import Any, Callable, Optional, Union
 import uuid
@@ -77,14 +78,37 @@ class _EventManager:
     events: dict[str,set]
         A dict of events and their callbacks
 
-
+    Methods
+    -------
+    add_event(event: str, callback: Callable[[SurrealResponse], Any])
+        Add an event to the events manager. 
+    remove_event(event: str, callback: Callable[[SurrealResponse], Any])
+        Remove an event from the events manager. 
+    clear()
+        Clear all events from the events manager.
+    emit(event: str, data: SurrealResponse)
+        Emit an event to the events manager.
+    on(event: Union[str, Callable[[SurrealResponse], Any]])
+        A decorator to add an event to the events manager.
     """
 
     def __init__(self):
+        """
+        Initialize the events manager. This is called automatically.
+        """
         self._name = uuid.uuid4().hex
         managers[self._name] = self
         self.events: dict[str, set] = {}
-
+        # iterates over all events and adds them to the events manager with the default callback function
+        for name, func in self.__class__.__dict__.items():
+            
+            # if the name of the function starts with on_ then it is an event and it is added to the events manager
+            if name.startswith("on_"):
+                # the event name is the name of the function without the on_ prefix and the callback function is the function itself
+                # To make class method work, we need to set the callback function to a partial function with the class instance as the first argument
+                self.add_event(name[3:], partial(func, self))
+        
+        
     def add_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
         """
         Add an event to the events manager.
@@ -139,6 +163,7 @@ class _EventManager:
 
         if event in self.events:
             for callback in self.events[event]:
+                
                 callback(data)
             for callback in self.events.get("all", []):
                 callback(data)

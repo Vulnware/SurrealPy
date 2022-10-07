@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-__all__ = ("Counter", "json_dumps", "json_loads")
+__all__ = ("json_dumps", "json_loads")
 
 try:
     import orjson

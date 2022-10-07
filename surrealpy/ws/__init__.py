@@ -7,6 +7,7 @@ from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
 from surrealpy.utils import json_dumps, json_loads
 from surrealpy.exceptions import SurrealError, WebSocketError
 from surrealpy.ws import event
+import atexit
 
 __all__ = ("SurrealClient",)
 
@@ -137,7 +138,12 @@ class SurrealClient:
         self._namespace: Optional[str] = None
         self._database: Optional[str] = None
         self._let_variables: list[str] = set()
-
+        atexit.register(self._atexit)
+    def _atexit(self):
+        """
+        This is a private function that is used to disconnect the websocket connection when the program exits. It is not recommended to use this function.
+        """
+        self.disconnect()
     def _count(self) -> str:
         """
         This is a private function that is used to count the number of requests. It is not recommended to use this function.
@@ -597,15 +603,15 @@ class SurrealClientThread(SurrealClient):
         The event manager of the client (optional) if you want to use custom event manager (default is None)
     Methods
     -------
-    connect() -> None
+    connect() -> None:
         Connect to the SurrealDB server
-    disconnect() -> None
+    disconnect() -> None:
         Disconnect from the SurrealDB server
-    ping() -> str
+    ping() -> str:
         Ping the SurrealDB server
-    use(namespace: str, database: str) -> None
+    use(namespace: str, database: str) -> None:
         Use a database
-    info() -> dict[str, Any]
+    info() -> dict[str, Any]:
         Get current SurrealDB server's authentication info
     register(params: dict[str, Any]) -> str
         Signup to the SurrealDB server

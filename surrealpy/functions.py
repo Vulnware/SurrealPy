@@ -1,1 +1,1 @@
-raise NotImplementedError("Surreal db function not implemented yet")
+# raise NotImplementedError("Surreal db function not implemented yet")
