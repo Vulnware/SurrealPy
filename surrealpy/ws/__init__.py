@@ -139,11 +139,13 @@ class SurrealClient:
         self._database: Optional[str] = None
         self._let_variables: list[str] = set()
         atexit.register(self._atexit)
+
     def _atexit(self):
         """
         This is a private function that is used to disconnect the websocket connection when the program exits. It is not recommended to use this function.
         """
         self.disconnect()
+
     def _count(self) -> str:
         """
         This is a private function that is used to count the number of requests. It is not recommended to use this function.
@@ -366,9 +368,6 @@ class SurrealClient:
             params = params.to_dict()
         clean_params = self._clean_dict_params(params)
         return self._send("signin", clean_params)[1]
-        
-            
-        
 
     def invalidate(self) -> None:
         """
@@ -737,13 +736,21 @@ class SurrealClientThread(SurrealClient):
             # If the response is None, then the connection has been closed
             err = SurrealError("Response is None")
             # Emit the error event
-            self._event_manager.emit(event.Events.ERROR,event.Event(event=event.Events.ERROR,response=SurrealResponse("-1",(err,))))
+            self._event_manager.emit(
+                event.Events.ERROR,
+                event.Event(
+                    event=event.Events.ERROR, response=SurrealResponse("-1", (err,))
+                ),
+            )
             raise err
         if response.get("error") is not None:
             # If the response has an error, then raise the error and return None
             err = WebSocketError(response["error"])
             # Emit the error event
-            self._event_manager.emit(event.Events.ERROR,event.Event(event=event.Events.ERROR,response=response,id=request.id))
+            self._event_manager.emit(
+                event.Events.ERROR,
+                event.Event(event=event.Events.ERROR, response=response, id=request.id),
+            )
             raise err
         return response["id"], response["result"]
 
@@ -767,7 +774,8 @@ class SurrealClientThread(SurrealClient):
                 event.Events.CONNECTED, response=SurrealResponse("-1", ("Connected",))
             ),
         )
-    def login(self, params: Union[dict[str,Any],LoginParams]) -> None:
+
+    def login(self, params: Union[dict[str, Any], LoginParams]) -> None:
         """
         Login to the SurrealDB server.
 
@@ -776,13 +784,22 @@ class SurrealClientThread(SurrealClient):
         params: Union[dict[str, Any], LoginParams]
             The credentials of the login request
         """
-        self._event_manager.emit(event.Events.LOGIN,event.Event(event.Events.LOGIN,response=SurrealResponse("-1",("Logging in...",))))
+        self._event_manager.emit(
+            event.Events.LOGIN,
+            event.Event(
+                event.Events.LOGIN, response=SurrealResponse("-1", ("Logging in...",))
+            ),
+        )
         if isinstance(params, LoginParams):
             params = params.to_dict()
         clean_params = self._clean_dict_params(params)
-        result = self._send("signin", clean_params)[1],
-        self._event_manager.emit(event.Events.LOGGED_IN, event.Event(event.Events.LOGGED_IN, response=SurrealResponse("-1", result)))
+        result = (self._send("signin", clean_params)[1],)
+        self._event_manager.emit(
+            event.Events.LOGGED_IN,
+            event.Event(event.Events.LOGGED_IN, response=SurrealResponse("-1", result)),
+        )
         return result
+
     def use(self, namespace: str, database: str) -> None:
         """
         Use a database.
@@ -796,8 +813,18 @@ class SurrealClientThread(SurrealClient):
 
         """
         result = self._send("use", namespace, database)
-        self._event_manager.emit(event.Events.USE, event.Event(event.Events.USE, response=SurrealResponse(result[0],{"namespace":namespace,"database":database}),id=result[0]))
+        self._event_manager.emit(
+            event.Events.USE,
+            event.Event(
+                event.Events.USE,
+                response=SurrealResponse(
+                    result[0], {"namespace": namespace, "database": database}
+                ),
+                id=result[0],
+            ),
+        )
         return result[1]
+
     def disconnect(self):
         """
         Disconnect from the SurrealDB server.
