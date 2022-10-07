@@ -1,5 +1,8 @@
+import asyncio
 import enum
 from functools import partial
+import queue
+import threading
 from types import NoneType
 from typing import Any, Callable, Optional, Union
 import uuid
@@ -99,6 +102,10 @@ class _EventManager:
         self._name = uuid.uuid4().hex
         managers[self._name] = self
         self.events: dict[str, set] = {}
+        self._async_loop = asyncio.get_event_loop()
+        self._event_queue = queue.Queue()
+        self._event_thread = threading.Thread(target=self._handle_events,daemon=True)
+        self._event_thread.start()
         # iterates over all events and adds them to the events manager with the default callback function
         for name, func in self.__class__.__dict__.items():
             
@@ -108,10 +115,22 @@ class _EventManager:
                 # To make class method work, we need to set the callback function to a partial function with the class instance as the first argument
                 self.add_event(name[3:], partial(func, self))
         
+    def _handle_events(self):
+        """
+        Handle events. This is called automatically. The event is emitted to the event queue and then handled by the event loop.
+        """
+        while True:
+            # event is partially called function that is called when the event is emitted
+            event: partial = self._event_queue.get()
+            
+            event()
+            
         
+    
     def add_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
         """
         Add an event to the events manager.
+        
         Parameters
         ----------
         event: str
@@ -121,7 +140,8 @@ class _EventManager:
         """
         if event not in self.events:
             self.events[event] = set()
-
+        # check if callback is async
+        
         self.events[event].add(callback)
 
     def remove_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
@@ -163,10 +183,18 @@ class _EventManager:
 
         if event in self.events:
             for callback in self.events[event]:
+                # check if callback is async
+                if asyncio.iscoroutinefunction(callback):
+                    self._async_loop.run_until_complete(callback(data))
+                else:
                 
-                callback(data)
+                    self._event_queue.put(partial(callback, data))
             for callback in self.events.get("all", []):
-                callback(data)
+                # check if callback is async
+                if asyncio.iscoroutinefunction(callback):
+                    self._async_loop.run_until_complete(callback(data))
+                else:
+                    self._event_queue.put(partial(callback, data))
 
     def on(self, event: Union[str, Callable[[Event], None]]) -> Callable:
         """

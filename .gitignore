@@ -8,6 +8,7 @@ surrealpy/nsql/
 *.so
 main.py
 # Distribution / packaging
+html/
 .Python
 build/
 develop-eggs/
