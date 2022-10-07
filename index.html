@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 <meta name="generator" content="pdoc 0.10.0" />
 <title>surrealpy API documentation</title>
-<meta name="description" content="" />
+<meta name="description" content="This project is licensed under the terms of the MIT license. See the LICENSE file.
+Note: This is a wrapper for the Surreal API. This is not the …" />
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
 <link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
@@ -22,11 +23,22 @@
 <h1 class="title">Package <code>surrealpy</code></h1>
 </header>
 <section id="section-intro">
+<p>This project is licensed under the terms of the MIT license. See the LICENSE file.
+Note: This is a wrapper for the Surreal API. This is not the official Surreal API. This is not affiliated with Surreal. This is not endorsed by Surreal.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">__author__ = &#34;https://github.com/bilinenkisi&#34;
+<pre><code class="python">&#34;&#34;&#34;
+This project is licensed under the terms of the MIT license. See the LICENSE file.
+Note: This is a wrapper for the Surreal API. This is not the official Surreal API. This is not affiliated with Surreal. This is not endorsed by Surreal.
+&#34;&#34;&#34;
+# For now, this project only support Python 3.9 and above.
+import sys
+
+if sys.version_info &lt; (3, 9):
+    sys.exit(&#34;Python 3.9 or above is required.&#34;)
+__authors__ = (&#34;https://github.com/bilinenkisi&#34;, &#34;https://github.com/redbuls81&#34;)
 __version__ = &#34;0.1.0.dev&#34;
 __handler_version__ = &#34;0.1.0.dev&#34;
 __http_version__ = &#34;0.1.0.dev&#34;</code></pre>
@@ -48,10 +60,6 @@ __http_version__ = &#34;0.1.0.dev&#34;</code></pre>
 <div class="desc"></div>
 </dd>
 <dt><code class="name"><a title="surrealpy.http" href="http/index.html">surrealpy.http</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt><code class="name"><a title="surrealpy.nsql" href="nsql/index.html">surrealpy.nsql</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -84,7 +92,6 @@ __http_version__ = &#34;0.1.0.dev&#34;</code></pre>
 <li><code><a title="surrealpy.functions" href="functions.html">surrealpy.functions</a></code></li>
 <li><code><a title="surrealpy.handler" href="handler/index.html">surrealpy.handler</a></code></li>
 <li><code><a title="surrealpy.http" href="http/index.html">surrealpy.http</a></code></li>
-<li><code><a title="surrealpy.nsql" href="nsql/index.html">surrealpy.nsql</a></code></li>
 <li><code><a title="surrealpy.utils" href="utils.html">surrealpy.utils</a></code></li>
 <li><code><a title="surrealpy.ws" href="ws/index.html">surrealpy.ws</a></code></li>
 </ul>

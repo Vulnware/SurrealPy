@@ -26,17 +26,16 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">import sys
-from typing import Optional, Union
-import requests
-from requests.auth import HTTPBasicAuth
+<pre><code class="python">from types import TracebackType
+from typing import Any, Optional, Union
 import logging
 import urllib.parse
 from surrealpy.http.models import SurrealResponse
-import aiohttp
-from aiohttp import BasicAuth
 from surrealpy.exceptions import ConnectionError, SurrealError
 from surrealpy.utils import json_dumps, json_loads
+import httpx
+
+__all__ = (&#34;Client&#34;, &#34;AsyncClient&#34;)
 
 
 def base_url(url, with_path=False):
@@ -57,143 +56,60 @@ logger.propagate = True
 logger.debug(&#34;imported&#34;)
 
 
-class SurrealAsyncClient:
+class AsyncClient:
+    &#34;&#34;&#34;
+    This class is a wrapper for the SurrealDB HTTP API.
+    ...
+    Parameters
+    ----------
+    uri : str
+        The URI of the SurrealDB server.
+    namespace : str
+        The namespace of the database.
+    database : str
+        The name of the database.
+    username : str
+        The username of the database.
+    password : str
+        The password of the database.
+
+    Attributes
+    ----------
+    uri : str
+        the uri of the database
+    namespace : str
+        the namespace of the database
+    database : str
+        the database name
+    username : str
+        the username of the database
+    password : str
+        the password of the database
+
+    &#34;&#34;&#34;
+
     def __init__(
         self, uri: str, namespace: str, database: str, *, username: str, password: str
     ) -&gt; None:
-        self.__session = aiohttp.ClientSession(
-            auth=BasicAuth(username, password),
-            headers={
-                &#34;Content-Type&#34;: &#34;application/json&#34;,
-                &#34;Accept&#34;: &#34;application/json&#34;,
-                &#34;NS&#34;: namespace,
-                &#34;DB&#34;: database,
-            },
+        &#34;&#34;&#34;
+        Constructor of the class.
+
+        Parameters
+        ----------
+        uri : str
+            The URI of the SurrealDB server.
+        namespace : str
+            The namespace of the database.
+        database : str
+            The name of the database.
+        username : str
+            The username of the database.
+        password : str
+            The password of the database.
+        &#34;&#34;&#34;
+        self.__session = httpx.AsyncClient(
+            auth=httpx.BasicAuth(username=username, password=password)
         )
-        self.__uri = uri
-        self.__baseurl = base_url(uri)
-
-        self.__ns = namespace
-        self.__db = database
-
-    async def check(self):
-        return await self.__check()
-
-    @property
-    def ns(self) -&gt; str:
-        return self.__ns
-
-    @property
-    def db(self) -&gt; Union[dict, list]:
-        # retrieve all databases
-        return self.__db
-
-    @property
-    def tables(self) -&gt; Union[dict, list]:
-        # retrieve all tables
-        data = self.__query(&#34;INFO FOR DB;&#34;)
-        for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
-            yield i
-
-    @property
-    def uri(self):
-        return self.__uri
-
-    async def __check(self):
-        async with self.__session.head(self.uri) as resp:
-            if resp.status == 200:
-                return True
-            else:
-                return False
-
-    async def __post(self, *extends, query: str) -&gt; Union[dict, list]:
-        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        async with self.__session.post(extend_uri, data=query) as response:
-            respText = await response.text()
-            logger.debug(respText)
-            if response.status == 200:
-                return json_loads(respText)
-            elif response.status == 400:
-                logger.error(respText)
-                raise SurrealError(json_loads(respText)[&#34;information&#34;])
-            else:
-                logger.error(respText)
-                return None
-
-    async def __get(self, *extends) -&gt; Union[dict, list]:
-        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        async with self.__session.get(extend_uri) as response:
-            respText = await response.text()
-            if response.status == 200:
-                return json_loads(respText)
-            else:
-                return None
-
-    def __transform_into_sql_val(val):
-        if isinstance(val, str):
-            return &#34;&#39;%s&#39;&#34; % val
-        return val
-
-    async def raw_query(self, query: str) -&gt; Union[dict, list]:
-        # execute a raw query
-        return await self.__post(&#34;sql&#34;, query=query)
-
-    async def mapped_query(self, query: str) -&gt; SurrealResponse:
-        # execute a mapped query
-
-        return SurrealResponse(self.raw_query(query))
-
-    async def query(self, query: str, **kwargs) -&gt; Union[dict, list]:
-        # query the database
-        return await self.mapped_query(query.format(**kwargs))
-
-    async def let(self, key, val):
-        return await self.mapped_query(
-            &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
-        )
-
-    async def select(self, tid: str):
-        &#34;&#34;&#34;tid can be a table name or a record id&#34;&#34;&#34;
-        return await self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))
-
-    async def create(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;CREATE {tid}&#34;)
-        )
-
-    async def update(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;UPDATE {tid} CONTENT {json_dumps(data)}&#34;)
-        )
-
-    async def change(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;UPDATE {tid} MERGE {json_dumps(data)}&#34;)
-        )
-
-    async def modify(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;UPDATE {tid} PATCH {json_dumps(data)}&#34;)
-        )
-
-    async def delete(self, tid: str):
-        return await self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)
-
-
-class SurrealClient:
-    def __init__(
-        self, uri: str, namespace: str, database: str, *, username: str, password: str
-    ) -&gt; None:
-        self.__session = requests.session()
-        self.__session.auth = HTTPBasicAuth(username, password)
         self.__session.headers.update(
             {
                 &#34;Content-Type&#34;: &#34;application/json&#34;,
@@ -204,104 +120,748 @@ class SurrealClient:
         )
         self.__uri = uri
         self.__baseurl = base_url(uri)
-        if self.__check() is False:
-            raise ConnectionError(&#34;Connection Error&#34;)
         self.__ns = namespace
         self.__db = database
 
     @property
     def ns(self) -&gt; str:
+        &#34;&#34;&#34;
+        The namespace of the database.
+
+        Returns
+        -------
+        str
+            the namespace of the database
+        &#34;&#34;&#34;
         return self.__ns
 
     @property
-    def db(self) -&gt; Union[dict, list]:
-        # retrieve all databases
+    def db(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The databases in the namespace.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the databases in the namespace as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
+        return self.__db
+
+    async def tables(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The tables in the database.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the tables in the database as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
+        # retrieve all tables
+        data = await self.raw_query(&#34;INFO FOR DB;&#34;)
+        for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
+            yield i
+
+    @property
+    def uri(self) -&gt; str:
+        &#34;&#34;&#34;
+        The URI of the SurrealDB server.
+
+        Returns
+        -------
+        str
+            the URI of the SurrealDB server as a string
+        &#34;&#34;&#34;
+        return self.__uri
+
+    async def __check(self) -&gt; None:
+        &#34;&#34;&#34;
+        Check if the connection is valid. If not, raise an exception.
+
+        Raises
+        ------
+        ConnectionError
+            if the connection is not valid or the database does not exist or the namespace does not exist or the username or password is wrong or the database is not accessible raise ConnectionError
+
+        Returns
+        -------
+        None
+        &#34;&#34;&#34;
+        await self.query(&#34;INFO FOR DB;&#34;)
+
+    async def __post(
+        self, *extends: tuple[str], query: str
+    ) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        extends : tuple[str]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid
+        &#34;&#34;&#34;
+        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
+        response: httpx.Response = await self.__session.post(extend_uri, content=query)
+        if response.status_code == 200:
+            return json_loads(await response.aread())
+        elif response.status_code == 400:
+            logger.error(await response.aread())
+            raise SurrealError(json_loads(await response.aread())[&#34;information&#34;])
+        else:
+            logger.error(await response.aread())
+            return None
+
+    async def __get(self, *extends: tuple[Any]) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Make a get request to the database. If the request is not valid, raise an exception. If the request is valid, return the result.
+
+        Parameters
+        ----------
+        extends : tuple[Any]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the request is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the request as a list of dictionaries or a dictionary if the request is valid or None if the request is not valid.
+        &#34;&#34;&#34;
+        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
+        response: httpx.Response = await self.__session.get(extend_uri)
+        logger.debug(await response.aread())
+        if response.status_code == 200:
+            return json_loads(await response.aread())
+        else:
+            return None
+
+    def __transform_into_sql_val(val: Any) -&gt; Optional[Any]:
+        &#34;&#34;&#34;
+        Transform a value into a SQL value.
+
+        Parameters
+        ----------
+        val : Optional[Any]
+            the value to transform into a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Returns
+        -------
+        Any
+            the value as a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones.
+        &#34;&#34;&#34;
+        if isinstance(val, str):
+            return &#34;&#39;%s&#39;&#34; % val
+        return val
+
+    async def raw_query(self, query: str) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.
+        &#34;&#34;&#34;
+        # execute a raw query
+        return await self.__post(&#34;sql&#34;, query=query)
+
+    async def mapped_query(self, query: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
+        # execute a mapped query
+        return SurrealResponse(await self.raw_query(query))
+
+    async def query(self, query: str, **kwargs) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        kwargs : dict[str,Any]
+            the values to replace in the query as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
+        # query the database
+        return await self.mapped_query(query.format(**kwargs))
+
+    async def let(self, key, val) -&gt; None:
+        &#34;&#34;&#34;
+        Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.
+
+        Parameters
+        ----------
+        key : str
+            the key to let as a string
+        val : Any
+            the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Raises
+        ------
+        SurrealError
+            if the value is not valid, raise SurrealError with the error message
+        &#34;&#34;&#34;
+        return await self.mapped_query(
+            &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
+        )
+
+    async def select(self, tid: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+        tid is the id of a table or table name. If the tid is not valid, raise an exception
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return await self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))
+
+    async def create(self, tid: str, data: Optional[dict] = None) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;CREATE {tid}&#34;)
+        )
+
+    async def update(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;UPDATE {tid} CONTENT {json_dumps(data)}&#34;)
+        )
+
+    async def change(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;UPDATE {tid} MERGE {json_dumps(data)}&#34;)
+        )
+
+    async def modify(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;UPDATE {tid} PATCH {json_dumps(data)}&#34;)
+        )
+
+    async def delete(self, tid: str):
+        &#34;&#34;&#34;
+        Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return await self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)
+
+
+class Client:
+    &#34;&#34;&#34;
+    This class is a wrapper for the SurrealDB HTTP API.
+    ...
+    Parameters
+    ----------
+    uri : str
+        The URI of the SurrealDB server.
+    namespace : str
+        The namespace of the database.
+    database : str
+        The name of the database.
+    username : str
+        The username of the database.
+    password : str
+        The password of the database.
+
+    Attributes
+    ----------
+    uri : str
+        the uri of the database
+    namespace : str
+        the namespace of the database
+    database : str
+        the database name
+    username : str
+        the username of the database
+    password : str
+        the password of the database
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self, uri: str, namespace: str, database: str, *, username: str, password: str
+    ) -&gt; None:
+        &#34;&#34;&#34;
+        Constructor of the class.
+
+        Parameters
+        ----------
+        uri : str
+            The URI of the SurrealDB server.
+        namespace : str
+            The namespace of the database.
+        database : str
+            The name of the database.
+        username : str
+            The username of the database.
+        password : str
+            The password of the database.
+        &#34;&#34;&#34;
+        self.__session = httpx.Client(
+            auth=httpx.BasicAuth(username=username, password=password)
+        )
+        self.__session.headers.update(
+            {
+                &#34;Content-Type&#34;: &#34;application/json&#34;,
+                &#34;Accept&#34;: &#34;application/json&#34;,
+                &#34;NS&#34;: namespace,
+                &#34;DB&#34;: database,
+            }
+        )
+        self.__uri = uri
+        self.__baseurl = base_url(uri)
+        self.__check()
+        self.__ns = namespace
+        self.__db = database
+
+    @property
+    def ns(self) -&gt; str:
+        &#34;&#34;&#34;
+        The namespace of the database.
+
+        Returns
+        -------
+        str
+            the namespace of the database
+        &#34;&#34;&#34;
+        return self.__ns
+
+    @property
+    def db(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The databases in the namespace.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the databases in the namespace as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
         return self.__db
 
     @property
-    def tables(self) -&gt; Union[dict, list]:
+    def tables(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The tables in the database.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the tables in the database as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
         # retrieve all tables
         data = self.raw_query(&#34;INFO FOR DB;&#34;)
         for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
             yield i
 
     @property
-    def uri(self):
+    def uri(self) -&gt; str:
+        &#34;&#34;&#34;
+        The URI of the SurrealDB server.
+
+        Returns
+        -------
+        str
+            the URI of the SurrealDB server as a string
+        &#34;&#34;&#34;
         return self.__uri
 
-    def __check(self):
-        try:
-            with self.__session.head(self.__uri) as response:
-                logger.debug(response.status_code)
-                logger.debug(response.text)
-                logger.debug(response.headers)
-                logger.debug(response.request.headers)
-                logger.debug(response.request.body)
-                return True
-        except requests.Timeout as e:
-            logger.error(e)
-            return False
-        except requests.ConnectionError as e:
-            logger.error(e)
-            return False
-        except requests.RequestException as e:
-            logger.error(e)
-            return False
-        except Exception as e:
-            logger.error(e)
-            return False
+    def __check(self) -&gt; None:
+        &#34;&#34;&#34;
+        Check if the connection is valid. If not, raise an exception.
+
+        Raises
+        ------
+        ConnectionError
+            if the connection is not valid or the database does not exist or the namespace does not exist or the username or password is wrong or the database is not accessible raise ConnectionError
+
+        Returns
+        -------
+        None
+        &#34;&#34;&#34;
+        self.query(&#34;INFO FOR DB;&#34;)
+
+    def __post(
+        self, *extends: tuple[str], query: str
+    ) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        extends : tuple[str]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid
+        &#34;&#34;&#34;
+        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
+        response: httpx.Response = self.__session.post(extend_uri, content=query)
+        logger.debug(response.text)
+        if response.status_code == 200:
+            return json_loads(response.text)
+        elif response.status_code == 400:
+            logger.error(response.text)
+            raise SurrealError(json_loads(response.text)[&#34;information&#34;])
         else:
-            logger.debug(&#34;connection successful&#34;)
+            logger.error(response.text)
+            return None
 
-    def __post(self, *extends, query: str) -&gt; Union[dict, list]:
+    def __get(self, *extends: tuple[Any]) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Make a get request to the database. If the request is not valid, raise an exception. If the request is valid, return the result.
+
+        Parameters
+        ----------
+        extends : tuple[Any]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the request is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the request as a list of dictionaries or a dictionary if the request is valid or None if the request is not valid.
+        &#34;&#34;&#34;
         extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        with self.__session.post(extend_uri, data=query) as response:
-            logger.debug(response.text)
-            if response.status_code == 200:
-                return json_loads(response.text)
-            elif response.status_code == 400:
-                logger.error(response.text)
-                raise SurrealError(json_loads(response.text)[&#34;information&#34;])
-            else:
-                logger.error(response.text)
-                return None
+        response: httpx.Response = self.__session.get(extend_uri)
+        logger.debug(response.text)
+        if response.status_code == 200:
+            return json_loads(response.text)
+        else:
+            return None
 
-    def __get(self, *extends) -&gt; Union[dict, list]:
-        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        with self.__session.get(extend_uri) as response:
-            logger.debug(response.text)
-            if response.status_code == 200:
-                return json_loads(response.text)
-            else:
-                return None
+    def __transform_into_sql_val(val: Any) -&gt; Optional[Any]:
+        &#34;&#34;&#34;
+        Transform a value into a SQL value.
 
-    def __transform_into_sql_val(val):
+        Parameters
+        ----------
+        val : Optional[Any]
+            the value to transform into a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Returns
+        -------
+        Any
+            the value as a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones.
+        &#34;&#34;&#34;
         if isinstance(val, str):
             return &#34;&#39;%s&#39;&#34; % val
         return val
 
-    def raw_query(self, query: str) -&gt; Union[dict, list]:
+    def raw_query(self, query: str) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.
+        &#34;&#34;&#34;
         # execute a raw query
         return self.__post(&#34;sql&#34;, query=query)
 
     def mapped_query(self, query: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
         # execute a mapped query
         return SurrealResponse(self.raw_query(query))
 
-    def query(self, query: str, **kwargs) -&gt; Union[dict, list]:
+    def query(self, query: str, **kwargs) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        kwargs : dict[str,Any]
+            the values to replace in the query as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
         # query the database
         return self.mapped_query(query.format(**kwargs))
 
-    def let(self, key, val):
+    def let(self, key, val) -&gt; None:
+        &#34;&#34;&#34;
+        Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.
+
+        Parameters
+        ----------
+        key : str
+            the key to let as a string
+        val : Any
+            the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Raises
+        ------
+        SurrealError
+            if the value is not valid, raise SurrealError with the error message
+        &#34;&#34;&#34;
         return self.mapped_query(
             &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
         )
 
-    def select(self, tid: str):
-        &#34;&#34;&#34;tid can be a table name or a record id&#34;&#34;&#34;
+    def select(self, tid: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+        tid is the id of a table or table name. If the tid is not valid, raise an exception
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))
 
-    def create(self, tid: str, data: Optional[dict] = None):
+    def create(self, tid: str, data: Optional[dict] = None) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
             if data is not None
@@ -309,6 +869,27 @@ class SurrealClient:
         )
 
     def update(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;UPDATE {tid}&#34;)
             if data is not None
@@ -316,6 +897,27 @@ class SurrealClient:
         )
 
     def change(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;UPDATE {tid}&#34;)
             if data is not None
@@ -323,6 +925,27 @@ class SurrealClient:
         )
 
     def modify(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;UPDATE {tid}&#34;)
             if data is not None
@@ -330,7 +953,72 @@ class SurrealClient:
         )
 
     def delete(self, tid: str):
-        return self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
+        &#34;&#34;&#34;
+        Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)
+
+    async def __aenter__(self) -&gt; &#34;Client&#34;:
+        &#34;&#34;&#34;
+        Enter the async context manager. Return the client.
+
+        Returns
+        -------
+        Client
+            the client instance
+        &#34;&#34;&#34;
+        await self.connect()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[BaseException] = None,
+        exc_value: Optional[BaseException] = None,
+        traceback: Optional[TracebackType] = None,
+    ) -&gt; None:
+        &#34;&#34;&#34;
+        Exit the async context manager. Close the connection.
+
+        Parameters
+        ----------
+        exc_type : Optional[BaseException] (default: None)
+            the exception type
+        exc_value : Optional[BaseException] (default: None)
+            the exception value
+        traceback : Optional[TracebackType] (default: None)
+            the traceback type
+        &#34;&#34;&#34;
+        await self.disconnect()
+
+    async def connect(self) -&gt; None:
+        &#34;&#34;&#34;
+        Connect to the database. If the connection is already established, raise an exception.
+        &#34;&#34;&#34;
+        await self.__session.__aenter__()
+
+    async def disconnect(self) -&gt; None:
+        &#34;&#34;&#34;
+        Disconnect from the database. If the connection is already closed, raise an exception. If the connection is not closed, close the connection.
+        &#34;&#34;&#34;
+        await self.__session.aclose()</code></pre>
 </details>
 </section>
 <section>
@@ -345,414 +1033,116 @@ class SurrealClient:
 <section>
 </section>
 <section>
-<h2 class="section-title" id="header-functions">Functions</h2>
-<dl>
-<dt id="surrealpy.http.base_url"><code class="name flex">
-<span>def <span class="ident">base_url</span></span>(<span>url, with_path=False)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def base_url(url, with_path=False):
-    # Get From https://stackoverflow.com/questions/35616434/how-can-i-get-the-base-of-a-url-in-python
-    parsed = urllib.parse.urlparse(url)
-    path = &#34;/&#34;.join(parsed.path.split(&#34;/&#34;)[:-1]) if with_path else &#34;&#34;
-    parsed = parsed._replace(path=path)
-    parsed = parsed._replace(params=&#34;&#34;)
-    parsed = parsed._replace(query=&#34;&#34;)
-    parsed = parsed._replace(fragment=&#34;&#34;)
-    return parsed.geturl()</code></pre>
-</details>
-</dd>
-</dl>
 </section>
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
-<dt id="surrealpy.http.SurrealAsyncClient"><code class="flex name class">
-<span>class <span class="ident">SurrealAsyncClient</span></span>
+<dt id="surrealpy.http.AsyncClient"><code class="flex name class">
+<span>class <span class="ident">AsyncClient</span></span>
 <span>(</span><span>uri: str, namespace: str, database: str, *, username: str, password: str)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>This class is a wrapper for the SurrealDB HTTP API.
+&hellip;
+Parameters</p>
+<hr>
+<dl>
+<dt><strong><code>uri</code></strong> :&ensp;<code>str</code></dt>
+<dd>The URI of the SurrealDB server.</dd>
+<dt><strong><code>namespace</code></strong> :&ensp;<code>str</code></dt>
+<dd>The namespace of the database.</dd>
+<dt><strong><code>database</code></strong> :&ensp;<code>str</code></dt>
+<dd>The name of the database.</dd>
+<dt><strong><code>username</code></strong> :&ensp;<code>str</code></dt>
+<dd>The username of the database.</dd>
+<dt><strong><code>password</code></strong> :&ensp;<code>str</code></dt>
+<dd>The password of the database.</dd>
+</dl>
+<h2 id="attributes">Attributes</h2>
+<dl>
+<dt><strong><code>uri</code></strong> :&ensp;<code>str</code></dt>
+<dd>the uri of the database</dd>
+<dt><strong><code>namespace</code></strong> :&ensp;<code>str</code></dt>
+<dd>the namespace of the database</dd>
+<dt><strong><code>database</code></strong> :&ensp;<code>str</code></dt>
+<dd>the database name</dd>
+<dt><strong><code>username</code></strong> :&ensp;<code>str</code></dt>
+<dd>the username of the database</dd>
+<dt><strong><code>password</code></strong> :&ensp;<code>str</code></dt>
+<dd>the password of the database</dd>
+</dl>
+<p>Constructor of the class.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>uri</code></strong> :&ensp;<code>str</code></dt>
+<dd>The URI of the SurrealDB server.</dd>
+<dt><strong><code>namespace</code></strong> :&ensp;<code>str</code></dt>
+<dd>The namespace of the database.</dd>
+<dt><strong><code>database</code></strong> :&ensp;<code>str</code></dt>
+<dd>The name of the database.</dd>
+<dt><strong><code>username</code></strong> :&ensp;<code>str</code></dt>
+<dd>The username of the database.</dd>
+<dt><strong><code>password</code></strong> :&ensp;<code>str</code></dt>
+<dd>The password of the database.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class SurrealAsyncClient:
+<pre><code class="python">class AsyncClient:
+    &#34;&#34;&#34;
+    This class is a wrapper for the SurrealDB HTTP API.
+    ...
+    Parameters
+    ----------
+    uri : str
+        The URI of the SurrealDB server.
+    namespace : str
+        The namespace of the database.
+    database : str
+        The name of the database.
+    username : str
+        The username of the database.
+    password : str
+        The password of the database.
+
+    Attributes
+    ----------
+    uri : str
+        the uri of the database
+    namespace : str
+        the namespace of the database
+    database : str
+        the database name
+    username : str
+        the username of the database
+    password : str
+        the password of the database
+
+    &#34;&#34;&#34;
+
     def __init__(
         self, uri: str, namespace: str, database: str, *, username: str, password: str
     ) -&gt; None:
-        self.__session = aiohttp.ClientSession(
-            auth=BasicAuth(username, password),
-            headers={
-                &#34;Content-Type&#34;: &#34;application/json&#34;,
-                &#34;Accept&#34;: &#34;application/json&#34;,
-                &#34;NS&#34;: namespace,
-                &#34;DB&#34;: database,
-            },
+        &#34;&#34;&#34;
+        Constructor of the class.
+
+        Parameters
+        ----------
+        uri : str
+            The URI of the SurrealDB server.
+        namespace : str
+            The namespace of the database.
+        database : str
+            The name of the database.
+        username : str
+            The username of the database.
+        password : str
+            The password of the database.
+        &#34;&#34;&#34;
+        self.__session = httpx.AsyncClient(
+            auth=httpx.BasicAuth(username=username, password=password)
         )
-        self.__uri = uri
-        self.__baseurl = base_url(uri)
-
-        self.__ns = namespace
-        self.__db = database
-
-    async def check(self):
-        return await self.__check()
-
-    @property
-    def ns(self) -&gt; str:
-        return self.__ns
-
-    @property
-    def db(self) -&gt; Union[dict, list]:
-        # retrieve all databases
-        return self.__db
-
-    @property
-    def tables(self) -&gt; Union[dict, list]:
-        # retrieve all tables
-        data = self.__query(&#34;INFO FOR DB;&#34;)
-        for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
-            yield i
-
-    @property
-    def uri(self):
-        return self.__uri
-
-    async def __check(self):
-        async with self.__session.head(self.uri) as resp:
-            if resp.status == 200:
-                return True
-            else:
-                return False
-
-    async def __post(self, *extends, query: str) -&gt; Union[dict, list]:
-        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        async with self.__session.post(extend_uri, data=query) as response:
-            respText = await response.text()
-            logger.debug(respText)
-            if response.status == 200:
-                return json_loads(respText)
-            elif response.status == 400:
-                logger.error(respText)
-                raise SurrealError(json_loads(respText)[&#34;information&#34;])
-            else:
-                logger.error(respText)
-                return None
-
-    async def __get(self, *extends) -&gt; Union[dict, list]:
-        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        async with self.__session.get(extend_uri) as response:
-            respText = await response.text()
-            if response.status == 200:
-                return json_loads(respText)
-            else:
-                return None
-
-    def __transform_into_sql_val(val):
-        if isinstance(val, str):
-            return &#34;&#39;%s&#39;&#34; % val
-        return val
-
-    async def raw_query(self, query: str) -&gt; Union[dict, list]:
-        # execute a raw query
-        return await self.__post(&#34;sql&#34;, query=query)
-
-    async def mapped_query(self, query: str) -&gt; SurrealResponse:
-        # execute a mapped query
-
-        return SurrealResponse(self.raw_query(query))
-
-    async def query(self, query: str, **kwargs) -&gt; Union[dict, list]:
-        # query the database
-        return await self.mapped_query(query.format(**kwargs))
-
-    async def let(self, key, val):
-        return await self.mapped_query(
-            &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
-        )
-
-    async def select(self, tid: str):
-        &#34;&#34;&#34;tid can be a table name or a record id&#34;&#34;&#34;
-        return await self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))
-
-    async def create(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;CREATE {tid}&#34;)
-        )
-
-    async def update(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;UPDATE {tid} CONTENT {json_dumps(data)}&#34;)
-        )
-
-    async def change(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;UPDATE {tid} MERGE {json_dumps(data)}&#34;)
-        )
-
-    async def modify(self, tid: str, data: Optional[dict] = None):
-        return (
-            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-            if data is not None
-            else self.mapped_query(f&#34;UPDATE {tid} PATCH {json_dumps(data)}&#34;)
-        )
-
-    async def delete(self, tid: str):
-        return await self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
-</details>
-<h3>Instance variables</h3>
-<dl>
-<dt id="surrealpy.http.SurrealAsyncClient.db"><code class="name">var <span class="ident">db</span> : Union[dict, list]</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@property
-def db(self) -&gt; Union[dict, list]:
-    # retrieve all databases
-    return self.__db</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.ns"><code class="name">var <span class="ident">ns</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@property
-def ns(self) -&gt; str:
-    return self.__ns</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.tables"><code class="name">var <span class="ident">tables</span> : Union[dict, list]</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@property
-def tables(self) -&gt; Union[dict, list]:
-    # retrieve all tables
-    data = self.__query(&#34;INFO FOR DB;&#34;)
-    for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
-        yield i</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.uri"><code class="name">var <span class="ident">uri</span></code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@property
-def uri(self):
-    return self.__uri</code></pre>
-</details>
-</dd>
-</dl>
-<h3>Methods</h3>
-<dl>
-<dt id="surrealpy.http.SurrealAsyncClient.change"><code class="name flex">
-<span>async def <span class="ident">change</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def change(self, tid: str, data: Optional[dict] = None):
-    return (
-        await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-        if data is not None
-        else self.mapped_query(f&#34;UPDATE {tid} MERGE {json_dumps(data)}&#34;)
-    )</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.check"><code class="name flex">
-<span>async def <span class="ident">check</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def check(self):
-    return await self.__check()</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.create"><code class="name flex">
-<span>async def <span class="ident">create</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def create(self, tid: str, data: Optional[dict] = None):
-    return (
-        await self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
-        if data is not None
-        else self.mapped_query(f&#34;CREATE {tid}&#34;)
-    )</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.delete"><code class="name flex">
-<span>async def <span class="ident">delete</span></span>(<span>self, tid: str)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def delete(self, tid: str):
-    return await self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.let"><code class="name flex">
-<span>async def <span class="ident">let</span></span>(<span>self, key, val)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def let(self, key, val):
-    return await self.mapped_query(
-        &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
-    )</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.mapped_query"><code class="name flex">
-<span>async def <span class="ident">mapped_query</span></span>(<span>self, query: str) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def mapped_query(self, query: str) -&gt; SurrealResponse:
-    # execute a mapped query
-
-    return SurrealResponse(self.raw_query(query))</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.modify"><code class="name flex">
-<span>async def <span class="ident">modify</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def modify(self, tid: str, data: Optional[dict] = None):
-    return (
-        await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-        if data is not None
-        else self.mapped_query(f&#34;UPDATE {tid} PATCH {json_dumps(data)}&#34;)
-    )</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.query"><code class="name flex">
-<span>async def <span class="ident">query</span></span>(<span>self, query: str, **kwargs) ‑> Union[dict, list]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def query(self, query: str, **kwargs) -&gt; Union[dict, list]:
-    # query the database
-    return await self.mapped_query(query.format(**kwargs))</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.raw_query"><code class="name flex">
-<span>async def <span class="ident">raw_query</span></span>(<span>self, query: str) ‑> Union[dict, list]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def raw_query(self, query: str) -&gt; Union[dict, list]:
-    # execute a raw query
-    return await self.__post(&#34;sql&#34;, query=query)</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.select"><code class="name flex">
-<span>async def <span class="ident">select</span></span>(<span>self, tid: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>tid can be a table name or a record id</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def select(self, tid: str):
-    &#34;&#34;&#34;tid can be a table name or a record id&#34;&#34;&#34;
-    return await self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))</code></pre>
-</details>
-</dd>
-<dt id="surrealpy.http.SurrealAsyncClient.update"><code class="name flex">
-<span>async def <span class="ident">update</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def update(self, tid: str, data: Optional[dict] = None):
-    return (
-        await self.mapped_query(f&#34;UPDATE {tid}&#34;)
-        if data is not None
-        else self.mapped_query(f&#34;UPDATE {tid} CONTENT {json_dumps(data)}&#34;)
-    )</code></pre>
-</details>
-</dd>
-</dl>
-</dd>
-<dt id="surrealpy.http.SurrealClient"><code class="flex name class">
-<span>class <span class="ident">SurrealClient</span></span>
-<span>(</span><span>uri: str, namespace: str, database: str, *, username: str, password: str)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class SurrealClient:
-    def __init__(
-        self, uri: str, namespace: str, database: str, *, username: str, password: str
-    ) -&gt; None:
-        self.__session = requests.session()
-        self.__session.auth = HTTPBasicAuth(username, password)
         self.__session.headers.update(
             {
                 &#34;Content-Type&#34;: &#34;application/json&#34;,
@@ -763,104 +1153,1417 @@ def uri(self):
         )
         self.__uri = uri
         self.__baseurl = base_url(uri)
-        if self.__check() is False:
-            raise ConnectionError(&#34;Connection Error&#34;)
         self.__ns = namespace
         self.__db = database
 
     @property
     def ns(self) -&gt; str:
+        &#34;&#34;&#34;
+        The namespace of the database.
+
+        Returns
+        -------
+        str
+            the namespace of the database
+        &#34;&#34;&#34;
         return self.__ns
 
     @property
-    def db(self) -&gt; Union[dict, list]:
-        # retrieve all databases
+    def db(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The databases in the namespace.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the databases in the namespace as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
+        return self.__db
+
+    async def tables(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The tables in the database.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the tables in the database as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
+        # retrieve all tables
+        data = await self.raw_query(&#34;INFO FOR DB;&#34;)
+        for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
+            yield i
+
+    @property
+    def uri(self) -&gt; str:
+        &#34;&#34;&#34;
+        The URI of the SurrealDB server.
+
+        Returns
+        -------
+        str
+            the URI of the SurrealDB server as a string
+        &#34;&#34;&#34;
+        return self.__uri
+
+    async def __check(self) -&gt; None:
+        &#34;&#34;&#34;
+        Check if the connection is valid. If not, raise an exception.
+
+        Raises
+        ------
+        ConnectionError
+            if the connection is not valid or the database does not exist or the namespace does not exist or the username or password is wrong or the database is not accessible raise ConnectionError
+
+        Returns
+        -------
+        None
+        &#34;&#34;&#34;
+        await self.query(&#34;INFO FOR DB;&#34;)
+
+    async def __post(
+        self, *extends: tuple[str], query: str
+    ) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        extends : tuple[str]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid
+        &#34;&#34;&#34;
+        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
+        response: httpx.Response = await self.__session.post(extend_uri, content=query)
+        if response.status_code == 200:
+            return json_loads(await response.aread())
+        elif response.status_code == 400:
+            logger.error(await response.aread())
+            raise SurrealError(json_loads(await response.aread())[&#34;information&#34;])
+        else:
+            logger.error(await response.aread())
+            return None
+
+    async def __get(self, *extends: tuple[Any]) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Make a get request to the database. If the request is not valid, raise an exception. If the request is valid, return the result.
+
+        Parameters
+        ----------
+        extends : tuple[Any]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the request is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the request as a list of dictionaries or a dictionary if the request is valid or None if the request is not valid.
+        &#34;&#34;&#34;
+        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
+        response: httpx.Response = await self.__session.get(extend_uri)
+        logger.debug(await response.aread())
+        if response.status_code == 200:
+            return json_loads(await response.aread())
+        else:
+            return None
+
+    def __transform_into_sql_val(val: Any) -&gt; Optional[Any]:
+        &#34;&#34;&#34;
+        Transform a value into a SQL value.
+
+        Parameters
+        ----------
+        val : Optional[Any]
+            the value to transform into a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Returns
+        -------
+        Any
+            the value as a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones.
+        &#34;&#34;&#34;
+        if isinstance(val, str):
+            return &#34;&#39;%s&#39;&#34; % val
+        return val
+
+    async def raw_query(self, query: str) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.
+        &#34;&#34;&#34;
+        # execute a raw query
+        return await self.__post(&#34;sql&#34;, query=query)
+
+    async def mapped_query(self, query: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
+        # execute a mapped query
+        return SurrealResponse(await self.raw_query(query))
+
+    async def query(self, query: str, **kwargs) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        kwargs : dict[str,Any]
+            the values to replace in the query as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
+        # query the database
+        return await self.mapped_query(query.format(**kwargs))
+
+    async def let(self, key, val) -&gt; None:
+        &#34;&#34;&#34;
+        Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.
+
+        Parameters
+        ----------
+        key : str
+            the key to let as a string
+        val : Any
+            the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Raises
+        ------
+        SurrealError
+            if the value is not valid, raise SurrealError with the error message
+        &#34;&#34;&#34;
+        return await self.mapped_query(
+            &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
+        )
+
+    async def select(self, tid: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+        tid is the id of a table or table name. If the tid is not valid, raise an exception
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return await self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))
+
+    async def create(self, tid: str, data: Optional[dict] = None) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;CREATE {tid}&#34;)
+        )
+
+    async def update(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;UPDATE {tid} CONTENT {json_dumps(data)}&#34;)
+        )
+
+    async def change(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;UPDATE {tid} MERGE {json_dumps(data)}&#34;)
+        )
+
+    async def modify(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return (
+            await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+            if data is not None
+            else await self.mapped_query(f&#34;UPDATE {tid} PATCH {json_dumps(data)}&#34;)
+        )
+
+    async def delete(self, tid: str):
+        &#34;&#34;&#34;
+        Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return await self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
+</details>
+<h3>Instance variables</h3>
+<dl>
+<dt id="surrealpy.http.AsyncClient.db"><code class="name">var <span class="ident">db</span> : Union[dict[str, Any], list[Any]]</code></dt>
+<dd>
+<div class="desc"><p>The databases in the namespace.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Union[dict[str,Any],list[Any]]</code></dt>
+<dd>the databases in the namespace as a list of dictionaries or a dictionary</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@property
+def db(self) -&gt; Union[dict[str, Any], list[Any]]:
+    &#34;&#34;&#34;
+    The databases in the namespace.
+
+    Returns
+    -------
+    Union[dict[str,Any],list[Any]]
+        the databases in the namespace as a list of dictionaries or a dictionary
+    &#34;&#34;&#34;
+    return self.__db</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.ns"><code class="name">var <span class="ident">ns</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The namespace of the database.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>str</code></dt>
+<dd>the namespace of the database</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@property
+def ns(self) -&gt; str:
+    &#34;&#34;&#34;
+    The namespace of the database.
+
+    Returns
+    -------
+    str
+        the namespace of the database
+    &#34;&#34;&#34;
+    return self.__ns</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.uri"><code class="name">var <span class="ident">uri</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The URI of the SurrealDB server.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>str</code></dt>
+<dd>the URI of the SurrealDB server as a string</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@property
+def uri(self) -&gt; str:
+    &#34;&#34;&#34;
+    The URI of the SurrealDB server.
+
+    Returns
+    -------
+    str
+        the URI of the SurrealDB server as a string
+    &#34;&#34;&#34;
+    return self.__uri</code></pre>
+</details>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="surrealpy.http.AsyncClient.change"><code class="name flex">
+<span>async def <span class="ident">change</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def change(self, tid: str, data: Optional[dict] = None):
+    &#34;&#34;&#34;
+    Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
+    return (
+        await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+        if data is not None
+        else await self.mapped_query(f&#34;UPDATE {tid} MERGE {json_dumps(data)}&#34;)
+    )</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.create"><code class="name flex">
+<span>async def <span class="ident">create</span></span>(<span>self, tid: str, data: Optional[dict] = None) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def create(self, tid: str, data: Optional[dict] = None) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
+    return (
+        await self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
+        if data is not None
+        else await self.mapped_query(f&#34;CREATE {tid}&#34;)
+    )</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.delete"><code class="name flex">
+<span>async def <span class="ident">delete</span></span>(<span>self, tid: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def delete(self, tid: str):
+    &#34;&#34;&#34;
+    Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
+    return await self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.let"><code class="name flex">
+<span>async def <span class="ident">let</span></span>(<span>self, key, val) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>key</code></strong> :&ensp;<code>str</code></dt>
+<dd>the key to let as a string</dd>
+<dt><strong><code>val</code></strong> :&ensp;<code>Any</code></dt>
+<dd>the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the value is not valid, raise SurrealError with the error message</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def let(self, key, val) -&gt; None:
+    &#34;&#34;&#34;
+    Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.
+
+    Parameters
+    ----------
+    key : str
+        the key to let as a string
+    val : Any
+        the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+    Raises
+    ------
+    SurrealError
+        if the value is not valid, raise SurrealError with the error message
+    &#34;&#34;&#34;
+    return await self.mapped_query(
+        &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
+    )</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.mapped_query"><code class="name flex">
+<span>async def <span class="ident">mapped_query</span></span>(<span>self, query: str) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>query</code></strong> :&ensp;<code>str</code></dt>
+<dd>the query to execute as a string in surrealql format (<a href="https://surrealdb.com/docs/surrealql">https://surrealdb.com/docs/surrealql</a>)</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the query is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def mapped_query(self, query: str) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+    Parameters
+    ----------
+    query : str
+        the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+    Raises
+    ------
+    SurrealError
+        if the query is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+    &#34;&#34;&#34;
+    # execute a mapped query
+    return SurrealResponse(await self.raw_query(query))</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.modify"><code class="name flex">
+<span>async def <span class="ident">modify</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def modify(self, tid: str, data: Optional[dict] = None):
+    &#34;&#34;&#34;
+    Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
+    return (
+        await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+        if data is not None
+        else await self.mapped_query(f&#34;UPDATE {tid} PATCH {json_dumps(data)}&#34;)
+    )</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.query"><code class="name flex">
+<span>async def <span class="ident">query</span></span>(<span>self, query: str, **kwargs) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>query</code></strong> :&ensp;<code>str</code></dt>
+<dd>the query to execute as a string in surrealql format (<a href="https://surrealdb.com/docs/surrealql">https://surrealdb.com/docs/surrealql</a>)</dd>
+<dt><strong><code>kwargs</code></strong> :&ensp;<code>dict[str,Any]</code></dt>
+<dd>the values to replace in the query as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the query is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def query(self, query: str, **kwargs) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+    Parameters
+    ----------
+    query : str
+        the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+    kwargs : dict[str,Any]
+        the values to replace in the query as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the query is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+    &#34;&#34;&#34;
+    # query the database
+    return await self.mapped_query(query.format(**kwargs))</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.raw_query"><code class="name flex">
+<span>async def <span class="ident">raw_query</span></span>(<span>self, query: str) ‑> Union[dict[str, Any], list[Any]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>query</code></strong> :&ensp;<code>str</code></dt>
+<dd>the query to execute as a string in surrealql format (<a href="https://surrealdb.com/docs/surrealql">https://surrealdb.com/docs/surrealql</a>)</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the query is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Union[dict[str,Any],list[Any]]</code></dt>
+<dd>the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def raw_query(self, query: str) -&gt; Union[dict[str, Any], list[Any]]:
+    &#34;&#34;&#34;
+    Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+    Parameters
+    ----------
+    query : str
+        the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+    Raises
+    ------
+    SurrealError
+        if the query is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    Union[dict[str,Any],list[Any]]
+        the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.
+    &#34;&#34;&#34;
+    # execute a raw query
+    return await self.__post(&#34;sql&#34;, query=query)</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.select"><code class="name flex">
+<span>async def <span class="ident">select</span></span>(<span>self, tid: str) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+tid is the id of a table or table name. If the tid is not valid, raise an exception</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def select(self, tid: str) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+    tid is the id of a table or table name. If the tid is not valid, raise an exception
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
+    return await self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.tables"><code class="name flex">
+<span>async def <span class="ident">tables</span></span>(<span>self) ‑> Union[dict[str, Any], list[Any]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>The tables in the database.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Union[dict[str,Any],list[Any]]</code></dt>
+<dd>the tables in the database as a list of dictionaries or a dictionary</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def tables(self) -&gt; Union[dict[str, Any], list[Any]]:
+    &#34;&#34;&#34;
+    The tables in the database.
+
+    Returns
+    -------
+    Union[dict[str,Any],list[Any]]
+        the tables in the database as a list of dictionaries or a dictionary
+    &#34;&#34;&#34;
+    # retrieve all tables
+    data = await self.raw_query(&#34;INFO FOR DB;&#34;)
+    for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
+        yield i</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.AsyncClient.update"><code class="name flex">
+<span>async def <span class="ident">update</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def update(self, tid: str, data: Optional[dict] = None):
+    &#34;&#34;&#34;
+    Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
+    return (
+        await self.mapped_query(f&#34;UPDATE {tid}&#34;)
+        if data is not None
+        else await self.mapped_query(f&#34;UPDATE {tid} CONTENT {json_dumps(data)}&#34;)
+    )</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="surrealpy.http.Client"><code class="flex name class">
+<span>class <span class="ident">Client</span></span>
+<span>(</span><span>uri: str, namespace: str, database: str, *, username: str, password: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>This class is a wrapper for the SurrealDB HTTP API.
+&hellip;
+Parameters</p>
+<hr>
+<dl>
+<dt><strong><code>uri</code></strong> :&ensp;<code>str</code></dt>
+<dd>The URI of the SurrealDB server.</dd>
+<dt><strong><code>namespace</code></strong> :&ensp;<code>str</code></dt>
+<dd>The namespace of the database.</dd>
+<dt><strong><code>database</code></strong> :&ensp;<code>str</code></dt>
+<dd>The name of the database.</dd>
+<dt><strong><code>username</code></strong> :&ensp;<code>str</code></dt>
+<dd>The username of the database.</dd>
+<dt><strong><code>password</code></strong> :&ensp;<code>str</code></dt>
+<dd>The password of the database.</dd>
+</dl>
+<h2 id="attributes">Attributes</h2>
+<dl>
+<dt><strong><code>uri</code></strong> :&ensp;<code>str</code></dt>
+<dd>the uri of the database</dd>
+<dt><strong><code>namespace</code></strong> :&ensp;<code>str</code></dt>
+<dd>the namespace of the database</dd>
+<dt><strong><code>database</code></strong> :&ensp;<code>str</code></dt>
+<dd>the database name</dd>
+<dt><strong><code>username</code></strong> :&ensp;<code>str</code></dt>
+<dd>the username of the database</dd>
+<dt><strong><code>password</code></strong> :&ensp;<code>str</code></dt>
+<dd>the password of the database</dd>
+</dl>
+<p>Constructor of the class.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>uri</code></strong> :&ensp;<code>str</code></dt>
+<dd>The URI of the SurrealDB server.</dd>
+<dt><strong><code>namespace</code></strong> :&ensp;<code>str</code></dt>
+<dd>The namespace of the database.</dd>
+<dt><strong><code>database</code></strong> :&ensp;<code>str</code></dt>
+<dd>The name of the database.</dd>
+<dt><strong><code>username</code></strong> :&ensp;<code>str</code></dt>
+<dd>The username of the database.</dd>
+<dt><strong><code>password</code></strong> :&ensp;<code>str</code></dt>
+<dd>The password of the database.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class Client:
+    &#34;&#34;&#34;
+    This class is a wrapper for the SurrealDB HTTP API.
+    ...
+    Parameters
+    ----------
+    uri : str
+        The URI of the SurrealDB server.
+    namespace : str
+        The namespace of the database.
+    database : str
+        The name of the database.
+    username : str
+        The username of the database.
+    password : str
+        The password of the database.
+
+    Attributes
+    ----------
+    uri : str
+        the uri of the database
+    namespace : str
+        the namespace of the database
+    database : str
+        the database name
+    username : str
+        the username of the database
+    password : str
+        the password of the database
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self, uri: str, namespace: str, database: str, *, username: str, password: str
+    ) -&gt; None:
+        &#34;&#34;&#34;
+        Constructor of the class.
+
+        Parameters
+        ----------
+        uri : str
+            The URI of the SurrealDB server.
+        namespace : str
+            The namespace of the database.
+        database : str
+            The name of the database.
+        username : str
+            The username of the database.
+        password : str
+            The password of the database.
+        &#34;&#34;&#34;
+        self.__session = httpx.Client(
+            auth=httpx.BasicAuth(username=username, password=password)
+        )
+        self.__session.headers.update(
+            {
+                &#34;Content-Type&#34;: &#34;application/json&#34;,
+                &#34;Accept&#34;: &#34;application/json&#34;,
+                &#34;NS&#34;: namespace,
+                &#34;DB&#34;: database,
+            }
+        )
+        self.__uri = uri
+        self.__baseurl = base_url(uri)
+        self.__check()
+        self.__ns = namespace
+        self.__db = database
+
+    @property
+    def ns(self) -&gt; str:
+        &#34;&#34;&#34;
+        The namespace of the database.
+
+        Returns
+        -------
+        str
+            the namespace of the database
+        &#34;&#34;&#34;
+        return self.__ns
+
+    @property
+    def db(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The databases in the namespace.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the databases in the namespace as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
         return self.__db
 
     @property
-    def tables(self) -&gt; Union[dict, list]:
+    def tables(self) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        The tables in the database.
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the tables in the database as a list of dictionaries or a dictionary
+        &#34;&#34;&#34;
         # retrieve all tables
         data = self.raw_query(&#34;INFO FOR DB;&#34;)
         for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
             yield i
 
     @property
-    def uri(self):
+    def uri(self) -&gt; str:
+        &#34;&#34;&#34;
+        The URI of the SurrealDB server.
+
+        Returns
+        -------
+        str
+            the URI of the SurrealDB server as a string
+        &#34;&#34;&#34;
         return self.__uri
 
-    def __check(self):
-        try:
-            with self.__session.head(self.__uri) as response:
-                logger.debug(response.status_code)
-                logger.debug(response.text)
-                logger.debug(response.headers)
-                logger.debug(response.request.headers)
-                logger.debug(response.request.body)
-                return True
-        except requests.Timeout as e:
-            logger.error(e)
-            return False
-        except requests.ConnectionError as e:
-            logger.error(e)
-            return False
-        except requests.RequestException as e:
-            logger.error(e)
-            return False
-        except Exception as e:
-            logger.error(e)
-            return False
+    def __check(self) -&gt; None:
+        &#34;&#34;&#34;
+        Check if the connection is valid. If not, raise an exception.
+
+        Raises
+        ------
+        ConnectionError
+            if the connection is not valid or the database does not exist or the namespace does not exist or the username or password is wrong or the database is not accessible raise ConnectionError
+
+        Returns
+        -------
+        None
+        &#34;&#34;&#34;
+        self.query(&#34;INFO FOR DB;&#34;)
+
+    def __post(
+        self, *extends: tuple[str], query: str
+    ) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        extends : tuple[str]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid
+        &#34;&#34;&#34;
+        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
+        response: httpx.Response = self.__session.post(extend_uri, content=query)
+        logger.debug(response.text)
+        if response.status_code == 200:
+            return json_loads(response.text)
+        elif response.status_code == 400:
+            logger.error(response.text)
+            raise SurrealError(json_loads(response.text)[&#34;information&#34;])
         else:
-            logger.debug(&#34;connection successful&#34;)
+            logger.error(response.text)
+            return None
 
-    def __post(self, *extends, query: str) -&gt; Union[dict, list]:
+    def __get(self, *extends: tuple[Any]) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Make a get request to the database. If the request is not valid, raise an exception. If the request is valid, return the result.
+
+        Parameters
+        ----------
+        extends : tuple[Any]
+            the extensions to add to the base url of the database connection.
+
+        Raises
+        ------
+        SurrealError
+            if the request is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the request as a list of dictionaries or a dictionary if the request is valid or None if the request is not valid.
+        &#34;&#34;&#34;
         extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        with self.__session.post(extend_uri, data=query) as response:
-            logger.debug(response.text)
-            if response.status_code == 200:
-                return json_loads(response.text)
-            elif response.status_code == 400:
-                logger.error(response.text)
-                raise SurrealError(json_loads(response.text)[&#34;information&#34;])
-            else:
-                logger.error(response.text)
-                return None
+        response: httpx.Response = self.__session.get(extend_uri)
+        logger.debug(response.text)
+        if response.status_code == 200:
+            return json_loads(response.text)
+        else:
+            return None
 
-    def __get(self, *extends) -&gt; Union[dict, list]:
-        extend_uri = self.__baseurl + &#34;/&#34; + &#34;/&#34;.join(extends)
-        with self.__session.get(extend_uri) as response:
-            logger.debug(response.text)
-            if response.status_code == 200:
-                return json_loads(response.text)
-            else:
-                return None
+    def __transform_into_sql_val(val: Any) -&gt; Optional[Any]:
+        &#34;&#34;&#34;
+        Transform a value into a SQL value.
 
-    def __transform_into_sql_val(val):
+        Parameters
+        ----------
+        val : Optional[Any]
+            the value to transform into a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Returns
+        -------
+        Any
+            the value as a SQL value as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones.
+        &#34;&#34;&#34;
         if isinstance(val, str):
             return &#34;&#39;%s&#39;&#34; % val
         return val
 
-    def raw_query(self, query: str) -&gt; Union[dict, list]:
+    def raw_query(self, query: str) -&gt; Union[dict[str, Any], list[Any]]:
+        &#34;&#34;&#34;
+        Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        Union[dict[str,Any],list[Any]]
+            the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.
+        &#34;&#34;&#34;
         # execute a raw query
         return self.__post(&#34;sql&#34;, query=query)
 
     def mapped_query(self, query: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
         # execute a mapped query
         return SurrealResponse(self.raw_query(query))
 
-    def query(self, query: str, **kwargs) -&gt; Union[dict, list]:
+    def query(self, query: str, **kwargs) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+        Parameters
+        ----------
+        query : str
+            the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+        kwargs : dict[str,Any]
+            the values to replace in the query as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the query is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+        &#34;&#34;&#34;
         # query the database
         return self.mapped_query(query.format(**kwargs))
 
-    def let(self, key, val):
+    def let(self, key, val) -&gt; None:
+        &#34;&#34;&#34;
+        Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.
+
+        Parameters
+        ----------
+        key : str
+            the key to let as a string
+        val : Any
+            the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+        Raises
+        ------
+        SurrealError
+            if the value is not valid, raise SurrealError with the error message
+        &#34;&#34;&#34;
         return self.mapped_query(
             &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
         )
 
-    def select(self, tid: str):
-        &#34;&#34;&#34;tid can be a table name or a record id&#34;&#34;&#34;
+    def select(self, tid: str) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+        tid is the id of a table or table name. If the tid is not valid, raise an exception
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))
 
-    def create(self, tid: str, data: Optional[dict] = None):
+    def create(self, tid: str, data: Optional[dict] = None) -&gt; SurrealResponse:
+        &#34;&#34;&#34;
+        Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
             if data is not None
@@ -868,6 +2571,27 @@ def uri(self):
         )
 
     def update(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;UPDATE {tid}&#34;)
             if data is not None
@@ -875,6 +2599,27 @@ def uri(self):
         )
 
     def change(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;UPDATE {tid}&#34;)
             if data is not None
@@ -882,6 +2627,27 @@ def uri(self):
         )
 
     def modify(self, tid: str, data: Optional[dict] = None):
+        &#34;&#34;&#34;
+        Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
         return (
             self.mapped_query(f&#34;UPDATE {tid}&#34;)
             if data is not None
@@ -889,75 +2655,229 @@ def uri(self):
         )
 
     def delete(self, tid: str):
-        return self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
+        &#34;&#34;&#34;
+        Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+        Parameters
+        ----------
+        tid : str
+            the tid to select as a string. tid is the id of a table or table name
+        data : Optional[dict] (default: None)
+            the data to create as a dictionary
+
+        Raises
+        ------
+        SurrealError
+            if the tid is not valid, raise SurrealError with the error message
+
+        Returns
+        -------
+        SurrealResponse
+            the result of the query as a SurrealResponse object
+
+        &#34;&#34;&#34;
+        return self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)
+
+    async def __aenter__(self) -&gt; &#34;Client&#34;:
+        &#34;&#34;&#34;
+        Enter the async context manager. Return the client.
+
+        Returns
+        -------
+        Client
+            the client instance
+        &#34;&#34;&#34;
+        await self.connect()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[BaseException] = None,
+        exc_value: Optional[BaseException] = None,
+        traceback: Optional[TracebackType] = None,
+    ) -&gt; None:
+        &#34;&#34;&#34;
+        Exit the async context manager. Close the connection.
+
+        Parameters
+        ----------
+        exc_type : Optional[BaseException] (default: None)
+            the exception type
+        exc_value : Optional[BaseException] (default: None)
+            the exception value
+        traceback : Optional[TracebackType] (default: None)
+            the traceback type
+        &#34;&#34;&#34;
+        await self.disconnect()
+
+    async def connect(self) -&gt; None:
+        &#34;&#34;&#34;
+        Connect to the database. If the connection is already established, raise an exception.
+        &#34;&#34;&#34;
+        await self.__session.__aenter__()
+
+    async def disconnect(self) -&gt; None:
+        &#34;&#34;&#34;
+        Disconnect from the database. If the connection is already closed, raise an exception. If the connection is not closed, close the connection.
+        &#34;&#34;&#34;
+        await self.__session.aclose()</code></pre>
 </details>
 <h3>Instance variables</h3>
 <dl>
-<dt id="surrealpy.http.SurrealClient.db"><code class="name">var <span class="ident">db</span> : Union[dict, list]</code></dt>
+<dt id="surrealpy.http.Client.db"><code class="name">var <span class="ident">db</span> : Union[dict[str, Any], list[Any]]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The databases in the namespace.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Union[dict[str,Any],list[Any]]</code></dt>
+<dd>the databases in the namespace as a list of dictionaries or a dictionary</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def db(self) -&gt; Union[dict, list]:
-    # retrieve all databases
+def db(self) -&gt; Union[dict[str, Any], list[Any]]:
+    &#34;&#34;&#34;
+    The databases in the namespace.
+
+    Returns
+    -------
+    Union[dict[str,Any],list[Any]]
+        the databases in the namespace as a list of dictionaries or a dictionary
+    &#34;&#34;&#34;
     return self.__db</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.ns"><code class="name">var <span class="ident">ns</span> : str</code></dt>
+<dt id="surrealpy.http.Client.ns"><code class="name">var <span class="ident">ns</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The namespace of the database.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>str</code></dt>
+<dd>the namespace of the database</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
 def ns(self) -&gt; str:
+    &#34;&#34;&#34;
+    The namespace of the database.
+
+    Returns
+    -------
+    str
+        the namespace of the database
+    &#34;&#34;&#34;
     return self.__ns</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.tables"><code class="name">var <span class="ident">tables</span> : Union[dict, list]</code></dt>
+<dt id="surrealpy.http.Client.tables"><code class="name">var <span class="ident">tables</span> : Union[dict[str, Any], list[Any]]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The tables in the database.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Union[dict[str,Any],list[Any]]</code></dt>
+<dd>the tables in the database as a list of dictionaries or a dictionary</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def tables(self) -&gt; Union[dict, list]:
+def tables(self) -&gt; Union[dict[str, Any], list[Any]]:
+    &#34;&#34;&#34;
+    The tables in the database.
+
+    Returns
+    -------
+    Union[dict[str,Any],list[Any]]
+        the tables in the database as a list of dictionaries or a dictionary
+    &#34;&#34;&#34;
     # retrieve all tables
     data = self.raw_query(&#34;INFO FOR DB;&#34;)
     for i in data[0][&#34;result&#34;][&#34;tb&#34;].keys():
         yield i</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.uri"><code class="name">var <span class="ident">uri</span></code></dt>
+<dt id="surrealpy.http.Client.uri"><code class="name">var <span class="ident">uri</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The URI of the SurrealDB server.</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>str</code></dt>
+<dd>the URI of the SurrealDB server as a string</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def uri(self):
+def uri(self) -&gt; str:
+    &#34;&#34;&#34;
+    The URI of the SurrealDB server.
+
+    Returns
+    -------
+    str
+        the URI of the SurrealDB server as a string
+    &#34;&#34;&#34;
     return self.__uri</code></pre>
 </details>
 </dd>
 </dl>
 <h3>Methods</h3>
 <dl>
-<dt id="surrealpy.http.SurrealClient.change"><code class="name flex">
+<dt id="surrealpy.http.Client.change"><code class="name flex">
 <span>def <span class="ident">change</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def change(self, tid: str, data: Optional[dict] = None):
+    &#34;&#34;&#34;
+    Change a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
     return (
         self.mapped_query(f&#34;UPDATE {tid}&#34;)
         if data is not None
@@ -965,16 +2885,70 @@ def uri(self):
     )</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.create"><code class="name flex">
-<span>def <span class="ident">create</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
+<dt id="surrealpy.http.Client.connect"><code class="name flex">
+<span>async def <span class="ident">connect</span></span>(<span>self) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Connect to the database. If the connection is already established, raise an exception.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def create(self, tid: str, data: Optional[dict] = None):
+<pre><code class="python">async def connect(self) -&gt; None:
+    &#34;&#34;&#34;
+    Connect to the database. If the connection is already established, raise an exception.
+    &#34;&#34;&#34;
+    await self.__session.__aenter__()</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.Client.create"><code class="name flex">
+<span>def <span class="ident">create</span></span>(<span>self, tid: str, data: Optional[dict] = None) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def create(self, tid: str, data: Optional[dict] = None) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Create a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
     return (
         self.mapped_query(f&#34;CREATE {tid} CONTENT {json_dumps(data)}&#34;)
         if data is not None
@@ -982,58 +2956,210 @@ def uri(self):
     )</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.delete"><code class="name flex">
+<dt id="surrealpy.http.Client.delete"><code class="name flex">
 <span>def <span class="ident">delete</span></span>(<span>self, tid: str)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def delete(self, tid: str):
+    &#34;&#34;&#34;
+    Delete a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
     return self.mapped_query(f&#34;DELETE * FROM {tid}&#34;)</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.let"><code class="name flex">
-<span>def <span class="ident">let</span></span>(<span>self, key, val)</span>
+<dt id="surrealpy.http.Client.disconnect"><code class="name flex">
+<span>async def <span class="ident">disconnect</span></span>(<span>self) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Disconnect from the database. If the connection is already closed, raise an exception. If the connection is not closed, close the connection.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def let(self, key, val):
+<pre><code class="python">async def disconnect(self) -&gt; None:
+    &#34;&#34;&#34;
+    Disconnect from the database. If the connection is already closed, raise an exception. If the connection is not closed, close the connection.
+    &#34;&#34;&#34;
+    await self.__session.aclose()</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.http.Client.let"><code class="name flex">
+<span>def <span class="ident">let</span></span>(<span>self, key, val) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>key</code></strong> :&ensp;<code>str</code></dt>
+<dd>the key to let as a string</dd>
+<dt><strong><code>val</code></strong> :&ensp;<code>Any</code></dt>
+<dd>the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the value is not valid, raise SurrealError with the error message</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def let(self, key, val) -&gt; None:
+    &#34;&#34;&#34;
+    Let a value in the database. If the value is not valid, raise an exception. If the value is valid, return the result.
+
+    Parameters
+    ----------
+    key : str
+        the key to let as a string
+    val : Any
+        the value to let as a string, int, float, bool, None or a list of strings, ints, floats, bools or Nones
+
+    Raises
+    ------
+    SurrealError
+        if the value is not valid, raise SurrealError with the error message
+    &#34;&#34;&#34;
     return self.mapped_query(
         &#34;LET ${}={}&#34;.format(key, self.__transform_into_sql_val(val))
     )</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.mapped_query"><code class="name flex">
+<dt id="surrealpy.http.Client.mapped_query"><code class="name flex">
 <span>def <span class="ident">mapped_query</span></span>(<span>self, query: str) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>query</code></strong> :&ensp;<code>str</code></dt>
+<dd>the query to execute as a string in surrealql format (<a href="https://surrealdb.com/docs/surrealql">https://surrealdb.com/docs/surrealql</a>)</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the query is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def mapped_query(self, query: str) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Execute mapped query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+    Parameters
+    ----------
+    query : str
+        the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+    Raises
+    ------
+    SurrealError
+        if the query is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+    &#34;&#34;&#34;
     # execute a mapped query
     return SurrealResponse(self.raw_query(query))</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.modify"><code class="name flex">
+<dt id="surrealpy.http.Client.modify"><code class="name flex">
 <span>def <span class="ident">modify</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def modify(self, tid: str, data: Optional[dict] = None):
+    &#34;&#34;&#34;
+    Modify a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
     return (
         self.mapped_query(f&#34;UPDATE {tid}&#34;)
         if data is not None
@@ -1041,58 +3167,201 @@ def uri(self):
     )</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.query"><code class="name flex">
-<span>def <span class="ident">query</span></span>(<span>self, query: str, **kwargs) ‑> Union[dict, list]</span>
+<dt id="surrealpy.http.Client.query"><code class="name flex">
+<span>def <span class="ident">query</span></span>(<span>self, query: str, **kwargs) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>query</code></strong> :&ensp;<code>str</code></dt>
+<dd>the query to execute as a string in surrealql format (<a href="https://surrealdb.com/docs/surrealql">https://surrealdb.com/docs/surrealql</a>)</dd>
+<dt><strong><code>kwargs</code></strong> :&ensp;<code>dict[str,Any]</code></dt>
+<dd>the values to replace in the query as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the query is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def query(self, query: str, **kwargs) -&gt; Union[dict, list]:
+<pre><code class="python">def query(self, query: str, **kwargs) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Execute a query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+    Parameters
+    ----------
+    query : str
+        the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+    kwargs : dict[str,Any]
+        the values to replace in the query as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the query is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+    &#34;&#34;&#34;
     # query the database
     return self.mapped_query(query.format(**kwargs))</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.raw_query"><code class="name flex">
-<span>def <span class="ident">raw_query</span></span>(<span>self, query: str) ‑> Union[dict, list]</span>
+<dt id="surrealpy.http.Client.raw_query"><code class="name flex">
+<span>def <span class="ident">raw_query</span></span>(<span>self, query: str) ‑> Union[dict[str, Any], list[Any]]</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>query</code></strong> :&ensp;<code>str</code></dt>
+<dd>the query to execute as a string in surrealql format (<a href="https://surrealdb.com/docs/surrealql">https://surrealdb.com/docs/surrealql</a>)</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the query is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Union[dict[str,Any],list[Any]]</code></dt>
+<dd>the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def raw_query(self, query: str) -&gt; Union[dict, list]:
+<pre><code class="python">def raw_query(self, query: str) -&gt; Union[dict[str, Any], list[Any]]:
+    &#34;&#34;&#34;
+    Execute raw query. If the query is not valid, raise an exception. If the query is valid, return the result.
+
+    Parameters
+    ----------
+    query : str
+        the query to execute as a string in surrealql format (https://surrealdb.com/docs/surrealql)
+
+    Raises
+    ------
+    SurrealError
+        if the query is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    Union[dict[str,Any],list[Any]]
+        the result of the query as a list of dictionaries or a dictionary if the query is valid or None if the query is not valid.
+    &#34;&#34;&#34;
     # execute a raw query
     return self.__post(&#34;sql&#34;, query=query)</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.select"><code class="name flex">
-<span>def <span class="ident">select</span></span>(<span>self, tid: str)</span>
+<dt id="surrealpy.http.Client.select"><code class="name flex">
+<span>def <span class="ident">select</span></span>(<span>self, tid: str) ‑> <a title="surrealpy.http.models.SurrealResponse" href="models.html#surrealpy.http.models.SurrealResponse">SurrealResponse</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>tid can be a table name or a record id</p></div>
+<div class="desc"><p>Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+tid is the id of a table or table name. If the tid is not valid, raise an exception</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def select(self, tid: str):
-    &#34;&#34;&#34;tid can be a table name or a record id&#34;&#34;&#34;
+<pre><code class="python">def select(self, tid: str) -&gt; SurrealResponse:
+    &#34;&#34;&#34;
+    Select a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+    tid is the id of a table or table name. If the tid is not valid, raise an exception
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
     return self.mapped_query(&#34;SELECT * FROM {}&#34;.format(tid))</code></pre>
 </details>
 </dd>
-<dt id="surrealpy.http.SurrealClient.update"><code class="name flex">
+<dt id="surrealpy.http.Client.update"><code class="name flex">
 <span>def <span class="ident">update</span></span>(<span>self, tid: str, data: Optional[dict] = None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>tid</code></strong> :&ensp;<code>str</code></dt>
+<dd>the tid to select as a string. tid is the id of a table or table name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>Optional[dict] (default: None)</code></dt>
+<dd>the data to create as a dictionary</dd>
+</dl>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>SurrealError</code></dt>
+<dd>if the tid is not valid, raise SurrealError with the error message</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>SurrealResponse</code></dt>
+<dd>the result of the query as a SurrealResponse object</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def update(self, tid: str, data: Optional[dict] = None):
+    &#34;&#34;&#34;
+    Update a tid in the database. If the tid is not valid, raise an exception. If the tid is valid, return the result.
+
+    Parameters
+    ----------
+    tid : str
+        the tid to select as a string. tid is the id of a table or table name
+    data : Optional[dict] (default: None)
+        the data to create as a dictionary
+
+    Raises
+    ------
+    SurrealError
+        if the tid is not valid, raise SurrealError with the error message
+
+    Returns
+    -------
+    SurrealResponse
+        the result of the query as a SurrealResponse object
+
+    &#34;&#34;&#34;
     return (
         self.mapped_query(f&#34;UPDATE {tid}&#34;)
         if data is not None
@@ -1121,50 +3390,46 @@ def uri(self):
 <li><code><a title="surrealpy.http.models" href="models.html">surrealpy.http.models</a></code></li>
 </ul>
 </li>
-<li><h3><a href="#header-functions">Functions</a></h3>
-<ul class="">
-<li><code><a title="surrealpy.http.base_url" href="#surrealpy.http.base_url">base_url</a></code></li>
-</ul>
-</li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
-<h4><code><a title="surrealpy.http.SurrealAsyncClient" href="#surrealpy.http.SurrealAsyncClient">SurrealAsyncClient</a></code></h4>
+<h4><code><a title="surrealpy.http.AsyncClient" href="#surrealpy.http.AsyncClient">AsyncClient</a></code></h4>
 <ul class="two-column">
-<li><code><a title="surrealpy.http.SurrealAsyncClient.change" href="#surrealpy.http.SurrealAsyncClient.change">change</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.check" href="#surrealpy.http.SurrealAsyncClient.check">check</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.create" href="#surrealpy.http.SurrealAsyncClient.create">create</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.db" href="#surrealpy.http.SurrealAsyncClient.db">db</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.delete" href="#surrealpy.http.SurrealAsyncClient.delete">delete</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.let" href="#surrealpy.http.SurrealAsyncClient.let">let</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.mapped_query" href="#surrealpy.http.SurrealAsyncClient.mapped_query">mapped_query</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.modify" href="#surrealpy.http.SurrealAsyncClient.modify">modify</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.ns" href="#surrealpy.http.SurrealAsyncClient.ns">ns</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.query" href="#surrealpy.http.SurrealAsyncClient.query">query</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.raw_query" href="#surrealpy.http.SurrealAsyncClient.raw_query">raw_query</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.select" href="#surrealpy.http.SurrealAsyncClient.select">select</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.tables" href="#surrealpy.http.SurrealAsyncClient.tables">tables</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.update" href="#surrealpy.http.SurrealAsyncClient.update">update</a></code></li>
-<li><code><a title="surrealpy.http.SurrealAsyncClient.uri" href="#surrealpy.http.SurrealAsyncClient.uri">uri</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.change" href="#surrealpy.http.AsyncClient.change">change</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.create" href="#surrealpy.http.AsyncClient.create">create</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.db" href="#surrealpy.http.AsyncClient.db">db</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.delete" href="#surrealpy.http.AsyncClient.delete">delete</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.let" href="#surrealpy.http.AsyncClient.let">let</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.mapped_query" href="#surrealpy.http.AsyncClient.mapped_query">mapped_query</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.modify" href="#surrealpy.http.AsyncClient.modify">modify</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.ns" href="#surrealpy.http.AsyncClient.ns">ns</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.query" href="#surrealpy.http.AsyncClient.query">query</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.raw_query" href="#surrealpy.http.AsyncClient.raw_query">raw_query</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.select" href="#surrealpy.http.AsyncClient.select">select</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.tables" href="#surrealpy.http.AsyncClient.tables">tables</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.update" href="#surrealpy.http.AsyncClient.update">update</a></code></li>
+<li><code><a title="surrealpy.http.AsyncClient.uri" href="#surrealpy.http.AsyncClient.uri">uri</a></code></li>
 </ul>
 </li>
 <li>
-<h4><code><a title="surrealpy.http.SurrealClient" href="#surrealpy.http.SurrealClient">SurrealClient</a></code></h4>
+<h4><code><a title="surrealpy.http.Client" href="#surrealpy.http.Client">Client</a></code></h4>
 <ul class="two-column">
-<li><code><a title="surrealpy.http.SurrealClient.change" href="#surrealpy.http.SurrealClient.change">change</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.create" href="#surrealpy.http.SurrealClient.create">create</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.db" href="#surrealpy.http.SurrealClient.db">db</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.delete" href="#surrealpy.http.SurrealClient.delete">delete</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.let" href="#surrealpy.http.SurrealClient.let">let</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.mapped_query" href="#surrealpy.http.SurrealClient.mapped_query">mapped_query</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.modify" href="#surrealpy.http.SurrealClient.modify">modify</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.ns" href="#surrealpy.http.SurrealClient.ns">ns</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.query" href="#surrealpy.http.SurrealClient.query">query</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.raw_query" href="#surrealpy.http.SurrealClient.raw_query">raw_query</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.select" href="#surrealpy.http.SurrealClient.select">select</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.tables" href="#surrealpy.http.SurrealClient.tables">tables</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.update" href="#surrealpy.http.SurrealClient.update">update</a></code></li>
-<li><code><a title="surrealpy.http.SurrealClient.uri" href="#surrealpy.http.SurrealClient.uri">uri</a></code></li>
+<li><code><a title="surrealpy.http.Client.change" href="#surrealpy.http.Client.change">change</a></code></li>
+<li><code><a title="surrealpy.http.Client.connect" href="#surrealpy.http.Client.connect">connect</a></code></li>
+<li><code><a title="surrealpy.http.Client.create" href="#surrealpy.http.Client.create">create</a></code></li>
+<li><code><a title="surrealpy.http.Client.db" href="#surrealpy.http.Client.db">db</a></code></li>
+<li><code><a title="surrealpy.http.Client.delete" href="#surrealpy.http.Client.delete">delete</a></code></li>
+<li><code><a title="surrealpy.http.Client.disconnect" href="#surrealpy.http.Client.disconnect">disconnect</a></code></li>
+<li><code><a title="surrealpy.http.Client.let" href="#surrealpy.http.Client.let">let</a></code></li>
+<li><code><a title="surrealpy.http.Client.mapped_query" href="#surrealpy.http.Client.mapped_query">mapped_query</a></code></li>
+<li><code><a title="surrealpy.http.Client.modify" href="#surrealpy.http.Client.modify">modify</a></code></li>
+<li><code><a title="surrealpy.http.Client.ns" href="#surrealpy.http.Client.ns">ns</a></code></li>
+<li><code><a title="surrealpy.http.Client.query" href="#surrealpy.http.Client.query">query</a></code></li>
+<li><code><a title="surrealpy.http.Client.raw_query" href="#surrealpy.http.Client.raw_query">raw_query</a></code></li>
+<li><code><a title="surrealpy.http.Client.select" href="#surrealpy.http.Client.select">select</a></code></li>
+<li><code><a title="surrealpy.http.Client.tables" href="#surrealpy.http.Client.tables">tables</a></code></li>
+<li><code><a title="surrealpy.http.Client.update" href="#surrealpy.http.Client.update">update</a></code></li>
+<li><code><a title="surrealpy.http.Client.uri" href="#surrealpy.http.Client.uri">uri</a></code></li>
 </ul>
 </li>
 </ul>
