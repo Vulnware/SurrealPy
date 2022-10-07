@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 __all__ = ("SurrealRequest",)
 
@@ -46,3 +46,9 @@ class SurrealRequest:
     id: str
     method: str
     params: tuple[Any]
+
+
+@dataclasses.dataclass(frozen=True)
+class SurrealResponse:
+    id: str
+    results: Union[dict, list[Any]]

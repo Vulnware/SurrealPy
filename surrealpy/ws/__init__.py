@@ -1,11 +1,12 @@
 import dataclasses
 import threading
 import time
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 from websocket import create_connection, WebSocket
-from surrealpy.ws.models import LoginParams, SurrealRequest
+from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
 from surrealpy.utils import json_dumps, json_loads
 from surrealpy.exceptions import SurrealError, WebSocketError
+from surrealpy.ws import event
 
 __all__ = ("SurrealClient",)
 
@@ -13,33 +14,34 @@ __all__ = ("SurrealClient",)
 def unthread(func):
     """
     Decorator to run a function in the main thread.
-    
+
     Parameters
     ----------
     func : function
         The function to run in the main thread.
-        
+
     Returns
     -------
     function
         The function to run in the main thread.
     """
-    def wrapper(*args: Any, **kwargs: dict[str,Any]) -> Any:
+
+    def wrapper(*args: Any, **kwargs: dict[str, Any]) -> Any:
         """
         Wrapper function.
-        
+
         Parameters
         ----------
         *args : Any
             The arguments to pass to the function.
         **kwargs : dict[str,Any]
             The keyword arguments to pass to the function.
-        
+
         Returns
         -------
         Any
             The return value of the function.
-        
+
         Raises
         ------
         RuntimeError
@@ -58,9 +60,9 @@ class SurrealClient:
     """
     A class used to represent SurrealClient
     ...
-    
+
     note: This class is not thread safe
-    
+
     Attributes
     ----------
     url: str
@@ -71,7 +73,7 @@ class SurrealClient:
         The namespace of the database
     database: Optional[str]
         The database name
-    
+
     Methods
     -------
     connect() -> None
@@ -117,7 +119,7 @@ class SurrealClient:
     def __init__(self, url):
         """
         Initialize the SurrealClient instance.
-        
+
         Parameters
         ----------
         url : str
@@ -285,7 +287,7 @@ class SurrealClient:
         if returnData.get("error") is not None:
             raise WebSocketError(returnData["error"])
 
-        return returnData["result"]
+        return returnData["id"], returnData["result"]
 
     def _clean_dict_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """
@@ -312,7 +314,7 @@ class SurrealClient:
         bool
             True if the SurrealDB server is alive else False
         """
-        return self._send("ping")
+        return self._send("ping")[1]
 
     def use(self, namespace: str, database: str) -> None:
         """
@@ -326,7 +328,7 @@ class SurrealClient:
             The database name
 
         """
-        return self._send("use", namespace, database)
+        return self._send("use", namespace, database)[1]
 
     def register(self, params: dict[str, Any]) -> str:
         """
@@ -343,7 +345,7 @@ class SurrealClient:
             The token of the user
         """
         clean_params = self._clean_dict_params(params)
-        return self._send("signup", clean_params)
+        return self._send("signup", clean_params)[1]
 
     def login(self, params: Union[dict[str, Any], LoginParams]) -> None:
         """
@@ -357,28 +359,31 @@ class SurrealClient:
         if isinstance(params, LoginParams):
             params = params.to_dict()
         clean_params = self._clean_dict_params(params)
-        return self._send("signin", clean_params)
+        return self._send("signin", clean_params)[1]
+        
+            
+        
 
     def invalidate(self) -> None:
         """
         Invalidate the current session.
         """
-        return self._send("invalidate")
+        return self._send("invalidate")[1]
 
     def authenticate(self, token: str):
         """Authenticate the current session."""
-        return self._send("authenticate", token)
+        return self._send("authenticate", token)[1]
 
     def killProcess(self, id: str) -> None:
         """
         Kill the current process.
         """
-        return self._send("kill", id)
+        return self._send("kill", id)[1]
 
     def let(self, key: str, value: Any) -> None:
         """Set a let variable."""
 
-        return self._send("let", key, value)
+        return self._send("let", key, value)[1]
 
     def query(
         self,
@@ -400,17 +405,17 @@ class SurrealClient:
             The result of the query as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
         """
         if params is None:
-            query_result = self._send("query", sql, params)
+            id, query_result = self._send("query", sql, params)
         elif isinstance(params, (list, tuple, set)):
             print(sql.format(*params))
-            query_result = self._send("query", sql.format(*params))
+            id, query_result = self._send("query", sql.format(*params))
         elif isinstance(params, dict):
-            query_result = self._send("query", sql.format(**params))
+            id, query_result = self._send("query", sql.format(**params))
         else:
             raise TypeError("params must be a list, tuple, set or dict")
-        return [r["result"] for r in query_result]
+        return SurrealResponse(id=id, results=[r["result"] for r in query_result])
 
-    def find(self, tid: str) -> list[Optional[dict[str, Any]]]:
+    def find(self, tid: str) -> SurrealResponse:
         """Find documents by their ids or table name.
         Parameters
         ----------
@@ -419,13 +424,13 @@ class SurrealClient:
 
         Returns
         -------
-        list[Optional[dict[str,Any]]]
-            The document(s) found as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
-
+        SurrealResponse
+            The result of the query as a SurrealResponse object containing the id of the query and the results as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
         """
-        return self._send("select", tid)
+        returnData = self._send("select", tid)
+        return SurrealResponse(id=returnData[0], results=returnData[1])
 
-    def find_one(self, tid: str) -> Optional[dict[str, Any]]:
+    def find_one(self, tid: str) -> Optional[SurrealResponse]:
         """Find a document by its id or table name.
         Parameters
         ----------
@@ -434,14 +439,14 @@ class SurrealClient:
 
         Returns
         -------
-        Optional[dict[str,Any]]
-            The document found as a dictionary (row) with the column names as keys and the values as values of the dictionary (row)
+        Optional[SurrealResponse]
+            The result of the query as a SurrealResponse object containing the results as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
         response = self.find(tid)
-        if len(response) == 0:
+        if len(response.results) == 0:
             return None
-        return response[0]
+        return response.results[0]
 
     def create(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -460,7 +465,7 @@ class SurrealClient:
             The document(s) created as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("create", tid, data)
+        return self._send("create", tid, data)[1]
 
     def update(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -479,7 +484,7 @@ class SurrealClient:
             The document(s) updated as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("update", tid, data)
+        return self._send("update", tid, data)[id]
 
     def change(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -498,7 +503,7 @@ class SurrealClient:
             The document(s) changed as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("change", tid, data)
+        return self._send("change", tid, data)[1]
 
     def modify(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -517,7 +522,7 @@ class SurrealClient:
             The document(s) modified as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("modify", tid, data)
+        return self._send("modify", tid, data)[1]
 
     def delete(self, tid: str) -> list[dict[str, Any]]:
         """Delete document(s) by given tid.
@@ -532,7 +537,7 @@ class SurrealClient:
             The document(s) deleted as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("delete", tid)
+        return self._send("delete", tid)[1]
 
     @unthread
     def __enter__(self):
@@ -563,27 +568,96 @@ class SurrealClient:
         """
         self.disconnect()
 
+
 class SurrealClientThread(SurrealClient):
-    """A SurrealDB client that supports threading.
-    
+    """
+    A class used to represent SurrealClient
+    ...
+
+    note: This class is not thread safe
+
     Parameters
     ----------
-    
+    url: str
+        The url of the SurrealDB server
+    eventManager: Optional[event._EventManager]
+        The event manager of the client (optional) if you want to use custom event manager (default is None)
+
+    Attributes
+    ----------
+    url: str
+        The url of the websocket server
+    ws: WebSocket
+        The websocket connection
+    namespace: Optional[str]
+        The namespace of the database
+    database: Optional[str]
+        The database name
+    eventManager: Optional[event._EventManager]
+        The event manager of the client (optional) if you want to use custom event manager (default is None)
+    Methods
+    -------
+    connect() -> None
+        Connect to the SurrealDB server
+    disconnect() -> None
+        Disconnect from the SurrealDB server
+    ping() -> str
+        Ping the SurrealDB server
+    use(namespace: str, database: str) -> None
+        Use a database
+    info() -> dict[str, Any]
+        Get current SurrealDB server's authentication info
+    register(params: dict[str, Any]) -> str
+        Signup to the SurrealDB server
+    login(params: dict[str, Any]) -> None
+        Login to the SurrealDB server
+    invalidate() -> None
+        Invalidate the current session
+    authenticate(token: str) -> None
+        Authenticate the current session
+    killProcess(id: str) -> None
+        Kill the given id process
+    let(key: str, value: Any) -> None
+        Set a let variable to the SurrealDB server
+    query(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]
+        Query the SurrealDB server with the given query and params (optional) that returns a list of dict
+    find(tid: str) -> list[dict[str, Any]]
+        Find the given tid (table or record id) in the SurrealDB server and returns a list of dict
+    find_one(tid: str) -> dict[str, Any]
+        Find the given tid (table or record id) in the SurrealDB server and returns a dict
+    create(tid: str, data: Union[Any, dict[str, Any]]) -> list[dict[str, Any]]
+        Create a record in the SurrealDB server with the given tid (table id) and data, returns a list of dict of the created record(s)
+    update(tid: str, data: Union[Any, dict[str, Any]]) -> list[dict[str, Any]]
+        Update a record in the SurrealDB server with the given tid (table id) and data, returns a list of dict of the updated record(s)
+    change(tid: str, data: Union[Any, dict[str, Any]]) -> list[dict[str, Any]]
+        Change a record in the SurrealDB server with the given tid (table id) and data, returns a list of dict of the changed record(s)
+    modify(tid: str, data: Union[Any, dict[str, Any]]) -> list[dict[str, Any]]
+        Modify a record in the SurrealDB server with the given tid (table id) and data, returns a list of dict of the modified record(s)
+    delete(tid: str) -> list[dict[str, Any]]
+        Delete a record in the SurrealDB server with the given tid (table id), returns a list of dict of the deleted record(s)
+    on(event: Union[str, Callable]) -> Callable
+        Decorator to register an event handler for the given event name or function name (if event is a function) to the EventManager and returns a function that can be used to unregister the event handler from the EventManager
     """
 
-    def __init__(self,url: str):
+    def __init__(self, url: str, *, eventManager: Optional[event._EventManager] = None):
         """Initialize the SurrealClientThread instance.
 
         Parameters
         ----------
         url: str
             The url of the SurrealDB server
-        
+
         """
         super().__init__(url)
-        self._receive_thread: threading.Thread = threading.Thread(target=self._receive_responses,daemon=True) # type: threading.Threading 
+        self._receive_thread: threading.Thread = threading.Thread(
+            target=self._receive_responses, daemon=True
+        )
         self._lock = threading.Lock()
-        self._responses: dict[str,Any] = {}
+        self._responses: dict[str, Any] = {}
+        self._event_manager: event._EventManager = eventManager or event._EventManager()
+
+        self.on = self._event_manager.on
+
     def count(self) -> int:
         """
         Count the number of responses.
@@ -595,6 +669,7 @@ class SurrealClientThread(SurrealClient):
         """
         with self._lock:
             return len(self._responses)
+
     def _count(self) -> str:
         """
         This is a private function that is used to count the number of requests. It is not recommended to use this function.
@@ -607,6 +682,7 @@ class SurrealClientThread(SurrealClient):
         with self._lock:
             self._counter += 1
             return str(self._counter)
+
     def _receive_responses(self):
         """
         This is a private function that is used to receive responses from the SurrealDB server. It is not recommended to use this function.
@@ -620,7 +696,9 @@ class SurrealClientThread(SurrealClient):
             # Parse the response as a dictionary
             response = json_loads(response)
             # Add the response to the responses dictionary
-            self._responses[response["id"]] = response 
+            self._responses[response["id"]] = response
+            self._event_manager.emit(event.Events.RECEIVED, response)
+
     def _send(self, method: str, *params: Any) -> Any:
         """
         Sends a request to the websocket server
@@ -648,15 +726,21 @@ class SurrealClientThread(SurrealClient):
         while request.id not in self._responses:
             time.sleep(0.01)
         # Get the response from the responses dictionary and remove it from the dictionary
-        response = self._responses.pop(request.id,None)
+        response = self._responses.pop(request.id, None)
         if response is None:
             # If the response is None, then the connection has been closed
-            raise SurrealError("Response is None")
+            err = SurrealError("Response is None")
+            # Emit the error event
+            self._event_manager.emit(event.Events.ERROR,event.Event(event=event.Events.ERROR,response=SurrealResponse("-1",(err,))))
+            raise err
         if response.get("error") is not None:
             # If the response has an error, then raise the error and return None
-            raise WebSocketError(response["error"])
-        return response["result"]
-    
+            err = WebSocketError(response["error"])
+            # Emit the error event
+            self._event_manager.emit(event.Events.ERROR,event.Event(event=event.Events.ERROR,response=response,id=request.id))
+            raise err
+        return response["id"], response["result"]
+
     def connect(self):
         """
         Connect to the SurrealDB server.
@@ -671,6 +755,43 @@ class SurrealClientThread(SurrealClient):
             raise WebSocketError("Connection is already established")
         self._ws = create_connection(self.url)
         self._receive_thread.start()
+        self._event_manager.emit(
+            event.Events.CONNECTED,
+            event.Event(
+                event.Events.CONNECTED, response=SurrealResponse("-1", ("Connected",))
+            ),
+        )
+    def login(self, params: Union[dict[str,Any],LoginParams]) -> None:
+        """
+        Login to the SurrealDB server.
+
+        Parameters
+        ----------
+        params: Union[dict[str, Any], LoginParams]
+            The credentials of the login request
+        """
+        self._event_manager.emit(event.Events.LOGIN,event.Event(event.Events.LOGIN,response=SurrealResponse("-1",("Logging in...",))))
+        if isinstance(params, LoginParams):
+            params = params.to_dict()
+        clean_params = self._clean_dict_params(params)
+        result = self._send("signin", clean_params)[1],
+        self._event_manager.emit(event.Events.LOGGED_IN, event.Event(event.Events.LOGGED_IN, response=SurrealResponse("-1", result)))
+        return result
+    def use(self, namespace: str, database: str) -> None:
+        """
+        Use a database.
+
+        Parameters
+        ----------
+        namespace: str
+            The namespace of the database
+        database: str
+            The database name
+
+        """
+        result = self._send("use", namespace, database)
+        self._event_manager.emit(event.Events.USE, event.Event(event.Events.USE, response=SurrealResponse(result[0],{"namespace":namespace,"database":database}),id=result[0]))
+        return result[1]
     def disconnect(self):
         """
         Disconnect from the SurrealDB server.
@@ -682,6 +803,14 @@ class SurrealClientThread(SurrealClient):
         """
         self._ws.close()
         self._receive_thread.join()
+        self._event_manager.emit(
+            event.Events.DISCONNECTED,
+            event.Event(
+                event.Events.DISCONNECTED,
+                response=SurrealResponse("-1", ("Disconnected",)),
+            ),
+        )
+
     def __enter__(self):
         """Enter the context manager.
 
@@ -692,4 +821,3 @@ class SurrealClientThread(SurrealClient):
         """
         self.connect()
         return self
-    
