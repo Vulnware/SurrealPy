@@ -37,14 +37,16 @@ class Events(enum.Enum):
         The event that is called when the client receives an error from the server
     """
 
-    CONNECTED = "connected" # Implemented
-    DISCONNECTED = "disconnected" # Implemented
-    LOGIN = "login" # Implemented
-    LOGGED_IN = "logged_in" # Implemented
-    LOGOUT = "logout" # Not implemented
-    USE = "use" # Implemented
-    RECEIVED = "received" # Implemented
-    ERROR = "error" # Not Completely Implemented
+    CONNECTED = "connected"  # Implemented
+    DISCONNECTED = "disconnected"  # Implemented
+    LOGIN = "login"  # Implemented
+    LOGGED_IN = "logged_in"  # Implemented
+    LOGOUT = "logout"  # Not implemented
+    USE = "use"  # Implemented
+    RECEIVED = "received"  # Implemented
+    ERROR = "error"  # Not Completely Implemented
+
+
 class Event:
     """
     A class used to represent SurrealDB event.
@@ -84,9 +86,9 @@ class _EventManager:
     Methods
     -------
     add_event(event: str, callback: Callable[[SurrealResponse], Any])
-        Add an event to the events manager. 
+        Add an event to the events manager.
     remove_event(event: str, callback: Callable[[SurrealResponse], Any])
-        Remove an event from the events manager. 
+        Remove an event from the events manager.
     clear()
         Clear all events from the events manager.
     emit(event: str, data: SurrealResponse)
@@ -104,17 +106,17 @@ class _EventManager:
         self.events: dict[str, set] = {}
         self._async_loop = asyncio.get_event_loop()
         self._event_queue = queue.Queue()
-        self._event_thread = threading.Thread(target=self._handle_events,daemon=True)
+        self._event_thread = threading.Thread(target=self._handle_events, daemon=True)
         self._event_thread.start()
         # iterates over all events and adds them to the events manager with the default callback function
         for name, func in self.__class__.__dict__.items():
-            
+
             # if the name of the function starts with on_ then it is an event and it is added to the events manager
             if name.startswith("on_"):
                 # the event name is the name of the function without the on_ prefix and the callback function is the function itself
                 # To make class method work, we need to set the callback function to a partial function with the class instance as the first argument
                 self.add_event(name[3:], partial(func, self))
-        
+
     def _handle_events(self):
         """
         Handle events. This is called automatically. The event is emitted to the event queue and then handled by the event loop.
@@ -122,15 +124,13 @@ class _EventManager:
         while True:
             # event is partially called function that is called when the event is emitted
             event: partial = self._event_queue.get()
-            
+
             event()
-            
-        
-    
+
     def add_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
         """
         Add an event to the events manager.
-        
+
         Parameters
         ----------
         event: str
@@ -141,7 +141,7 @@ class _EventManager:
         if event not in self.events:
             self.events[event] = set()
         # check if callback is async
-        
+
         self.events[event].add(callback)
 
     def remove_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
@@ -187,7 +187,7 @@ class _EventManager:
                 if asyncio.iscoroutinefunction(callback):
                     self._async_loop.run_until_complete(callback(data))
                 else:
-                
+
                     self._event_queue.put(partial(callback, data))
             for callback in self.events.get("all", []):
                 # check if callback is async
