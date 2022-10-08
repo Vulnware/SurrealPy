@@ -36,9 +36,9 @@ from typing import Any, Callable, Optional, Union
 import uuid
 from .models import SurrealResponse
 
-__all__ = (&#34;Event&#34;, &#34;Events&#34;, &#34;managers&#34;)
+__all__ = (&#34;Event&#34;, &#34;Events&#34;, &#34;managers&#34;,&#34;EventManager&#34;)
 
-managers: dict[str, &#34;_EventManager&#34;] = {}
+managers: dict[str, &#34;EventManager&#34;] = {}
 
 
 class Events(enum.Enum):
@@ -79,6 +79,7 @@ class Event:
     &#34;&#34;&#34;
     A class used to represent SurrealDB event.
     ...
+    
     Attributes
     ----------
     event: Events
@@ -102,7 +103,7 @@ class Event:
         return f&#34;Event({self.event}, {self.response})&#34;
 
 
-class _EventManager:
+class EventManager:
     &#34;&#34;&#34;
     A class used to represent SurrealDB events manager.
     ...
@@ -267,9 +268,8 @@ class _EventManager:
 </code></dt>
 <dd>
 <div class="desc"><p>A class used to represent SurrealDB event.
-&hellip;
-Attributes</p>
-<hr>
+&hellip;</p>
+<h2 id="attributes">Attributes</h2>
 <dl>
 <dt><strong><code>event</code></strong> :&ensp;<code><a title="surrealpy.ws.event.Events" href="#surrealpy.ws.event.Events">Events</a></code></dt>
 <dd>The event that is called</dd>
@@ -284,6 +284,7 @@ Attributes</p>
     &#34;&#34;&#34;
     A class used to represent SurrealDB event.
     ...
+    
     Attributes
     ----------
     event: Events
@@ -306,6 +307,363 @@ Attributes</p>
     def __repr__(self):
         return f&#34;Event({self.event}, {self.response})&#34;</code></pre>
 </details>
+</dd>
+<dt id="surrealpy.ws.event.EventManager"><code class="flex name class">
+<span>class <span class="ident">EventManager</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>A class used to represent SurrealDB events manager.
+&hellip;
+Attributes</p>
+<hr>
+<dl>
+<dt><strong><code>events</code></strong> :&ensp;<code>dict[str,set]</code></dt>
+<dd>A dict of events and their callbacks</dd>
+</dl>
+<h2 id="methods">Methods</h2>
+<p>add_event(event: str, callback: Callable[[SurrealResponse], Any])
+Add an event to the events manager.
+remove_event(event: str, callback: Callable[[SurrealResponse], Any])
+Remove an event from the events manager.
+clear()
+Clear all events from the events manager.
+emit(event: str, data: SurrealResponse)
+Emit an event to the events manager.
+on(event: Union[str, Callable[[SurrealResponse], Any]])
+A decorator to add an event to the events manager.</p>
+<p>Initialize the events manager. This is called automatically.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class EventManager:
+    &#34;&#34;&#34;
+    A class used to represent SurrealDB events manager.
+    ...
+    Attributes
+    ----------
+    events: dict[str,set]
+        A dict of events and their callbacks
+
+    Methods
+    -------
+    add_event(event: str, callback: Callable[[SurrealResponse], Any])
+        Add an event to the events manager.
+    remove_event(event: str, callback: Callable[[SurrealResponse], Any])
+        Remove an event from the events manager.
+    clear()
+        Clear all events from the events manager.
+    emit(event: str, data: SurrealResponse)
+        Emit an event to the events manager.
+    on(event: Union[str, Callable[[SurrealResponse], Any]])
+        A decorator to add an event to the events manager.
+    &#34;&#34;&#34;
+
+    def __init__(self):
+        &#34;&#34;&#34;
+        Initialize the events manager. This is called automatically.
+        &#34;&#34;&#34;
+        self._name = uuid.uuid4().hex
+        managers[self._name] = self
+        self.events: dict[str, set] = {}
+        self._async_loop = asyncio.get_event_loop()
+        self._event_queue = queue.Queue()
+        self._event_thread = threading.Thread(target=self._handle_events, daemon=True)
+        self._event_thread.start()
+        # iterates over all events and adds them to the events manager with the default callback function
+        for name, func in self.__class__.__dict__.items():
+
+            # if the name of the function starts with on_ then it is an event and it is added to the events manager
+            if name.startswith(&#34;on_&#34;):
+                # the event name is the name of the function without the on_ prefix and the callback function is the function itself
+                # To make class method work, we need to set the callback function to a partial function with the class instance as the first argument
+                self.add_event(name[3:], partial(func, self))
+
+    def _handle_events(self):
+        &#34;&#34;&#34;
+        Handle events. This is called automatically. The event is emitted to the event queue and then handled by the event loop.
+        &#34;&#34;&#34;
+        while True:
+            # event is partially called function that is called when the event is emitted
+            event: partial = self._event_queue.get()
+
+            event()
+
+    def add_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
+        &#34;&#34;&#34;
+        Add an event to the events manager.
+
+        Parameters
+        ----------
+        event: str
+            The event name
+        callback: Callable[[SurrealResponse], Any]
+            The callback function
+        &#34;&#34;&#34;
+        if event not in self.events:
+            self.events[event] = set()
+        # check if callback is async
+
+        self.events[event].add(callback)
+
+    def remove_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
+        &#34;&#34;&#34;
+        Remove an event from the events manager.
+        Parameters
+        ----------
+        event: str
+            The event name
+        callback: Callable[[SurrealResponse], Any]
+            The callback function
+        &#34;&#34;&#34;
+        if event in self.events:
+            self.events[event].remove(callback)
+        else:
+            raise ValueError(f&#34;Event {event} is not registered&#34;)
+        if &#34;all&#34; in self.events and callback in self.events[&#34;all&#34;]:
+            self.events[&#34;all&#34;].remove(callback)
+
+    def clear(self):
+        &#34;&#34;&#34;
+        Clear all events from the events manager.
+        &#34;&#34;&#34;
+        self.events.clear()
+
+    def emit(self, event: str, data: &#34;Event&#34;):
+        &#34;&#34;&#34;
+        Emit an event to the events manager.
+        Parameters
+        ----------
+        event: str
+            The event name
+        data: SurrealResponse
+            The data to pass to the callback function
+        &#34;&#34;&#34;
+
+        if isinstance(event, Events):
+            event = event.value
+
+        if event in self.events:
+            for callback in self.events[event]:
+                # check if callback is async
+                if asyncio.iscoroutinefunction(callback):
+                    self._async_loop.run_until_complete(callback(data))
+                else:
+
+                    self._event_queue.put(partial(callback, data))
+            for callback in self.events.get(&#34;all&#34;, []):
+                # check if callback is async
+                if asyncio.iscoroutinefunction(callback):
+                    self._async_loop.run_until_complete(callback(data))
+                else:
+                    self._event_queue.put(partial(callback, data))
+
+    def on(self, event: Union[str, Callable[[Event], None]]) -&gt; Callable:
+        &#34;&#34;&#34;
+        A decorator to add an event to the events manager.
+        Parameters
+        ----------
+        event: Union[str,Callable]
+            The event name or the callback function
+        Returns
+        -------
+        Callable
+            The decorator
+        &#34;&#34;&#34;
+        if callable(event):
+            self.add_event(event.__name__, event)
+            return event
+        else:
+
+            def decorator(func: Callable):
+                self.add_event(event, func)
+                return func
+
+            return decorator
+
+    def __del__(self):
+
+        del managers[self._name]</code></pre>
+</details>
+<h3>Methods</h3>
+<dl>
+<dt id="surrealpy.ws.event.EventManager.add_event"><code class="name flex">
+<span>def <span class="ident">add_event</span></span>(<span>self, event: str, callback: Callable[[surrealpy.ws.models.SurrealResponse], Any])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Add an event to the events manager.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>event</code></strong> :&ensp;<code>str</code></dt>
+<dd>The event name</dd>
+<dt><strong><code>callback</code></strong> :&ensp;<code>Callable[[SurrealResponse], Any]</code></dt>
+<dd>The callback function</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def add_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
+    &#34;&#34;&#34;
+    Add an event to the events manager.
+
+    Parameters
+    ----------
+    event: str
+        The event name
+    callback: Callable[[SurrealResponse], Any]
+        The callback function
+    &#34;&#34;&#34;
+    if event not in self.events:
+        self.events[event] = set()
+    # check if callback is async
+
+    self.events[event].add(callback)</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.ws.event.EventManager.clear"><code class="name flex">
+<span>def <span class="ident">clear</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Clear all events from the events manager.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def clear(self):
+    &#34;&#34;&#34;
+    Clear all events from the events manager.
+    &#34;&#34;&#34;
+    self.events.clear()</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.ws.event.EventManager.emit"><code class="name flex">
+<span>def <span class="ident">emit</span></span>(<span>self, event: str, data: <a title="surrealpy.ws.event.Event" href="#surrealpy.ws.event.Event">Event</a>)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Emit an event to the events manager.
+Parameters</p>
+<hr>
+<dl>
+<dt><strong><code>event</code></strong> :&ensp;<code>str</code></dt>
+<dd>The event name</dd>
+<dt><strong><code>data</code></strong> :&ensp;<code>SurrealResponse</code></dt>
+<dd>The data to pass to the callback function</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def emit(self, event: str, data: &#34;Event&#34;):
+    &#34;&#34;&#34;
+    Emit an event to the events manager.
+    Parameters
+    ----------
+    event: str
+        The event name
+    data: SurrealResponse
+        The data to pass to the callback function
+    &#34;&#34;&#34;
+
+    if isinstance(event, Events):
+        event = event.value
+
+    if event in self.events:
+        for callback in self.events[event]:
+            # check if callback is async
+            if asyncio.iscoroutinefunction(callback):
+                self._async_loop.run_until_complete(callback(data))
+            else:
+
+                self._event_queue.put(partial(callback, data))
+        for callback in self.events.get(&#34;all&#34;, []):
+            # check if callback is async
+            if asyncio.iscoroutinefunction(callback):
+                self._async_loop.run_until_complete(callback(data))
+            else:
+                self._event_queue.put(partial(callback, data))</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.ws.event.EventManager.on"><code class="name flex">
+<span>def <span class="ident">on</span></span>(<span>self, event: Union[str, Callable[[<a title="surrealpy.ws.event.Event" href="#surrealpy.ws.event.Event">Event</a>], None]]) ‑> Callable</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A decorator to add an event to the events manager.
+Parameters</p>
+<hr>
+<dl>
+<dt><strong><code>event</code></strong> :&ensp;<code>Union[str,Callable]</code></dt>
+<dd>The event name or the callback function</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>Callable</code></dt>
+<dd>The decorator</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def on(self, event: Union[str, Callable[[Event], None]]) -&gt; Callable:
+    &#34;&#34;&#34;
+    A decorator to add an event to the events manager.
+    Parameters
+    ----------
+    event: Union[str,Callable]
+        The event name or the callback function
+    Returns
+    -------
+    Callable
+        The decorator
+    &#34;&#34;&#34;
+    if callable(event):
+        self.add_event(event.__name__, event)
+        return event
+    else:
+
+        def decorator(func: Callable):
+            self.add_event(event, func)
+            return func
+
+        return decorator</code></pre>
+</details>
+</dd>
+<dt id="surrealpy.ws.event.EventManager.remove_event"><code class="name flex">
+<span>def <span class="ident">remove_event</span></span>(<span>self, event: str, callback: Callable[[surrealpy.ws.models.SurrealResponse], Any])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Remove an event from the events manager.
+Parameters</p>
+<hr>
+<dl>
+<dt><strong><code>event</code></strong> :&ensp;<code>str</code></dt>
+<dd>The event name</dd>
+<dt><strong><code>callback</code></strong> :&ensp;<code>Callable[[SurrealResponse], Any]</code></dt>
+<dd>The callback function</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def remove_event(self, event: str, callback: Callable[[SurrealResponse], Any]):
+    &#34;&#34;&#34;
+    Remove an event from the events manager.
+    Parameters
+    ----------
+    event: str
+        The event name
+    callback: Callable[[SurrealResponse], Any]
+        The callback function
+    &#34;&#34;&#34;
+    if event in self.events:
+        self.events[event].remove(callback)
+    else:
+        raise ValueError(f&#34;Event {event} is not registered&#34;)
+    if &#34;all&#34; in self.events and callback in self.events[&#34;all&#34;]:
+        self.events[&#34;all&#34;].remove(callback)</code></pre>
+</details>
+</dd>
+</dl>
 </dd>
 <dt id="surrealpy.ws.event.Events"><code class="flex name class">
 <span>class <span class="ident">Events</span></span>
@@ -429,6 +787,16 @@ Attributes</p>
 <ul>
 <li>
 <h4><code><a title="surrealpy.ws.event.Event" href="#surrealpy.ws.event.Event">Event</a></code></h4>
+</li>
+<li>
+<h4><code><a title="surrealpy.ws.event.EventManager" href="#surrealpy.ws.event.EventManager">EventManager</a></code></h4>
+<ul class="">
+<li><code><a title="surrealpy.ws.event.EventManager.add_event" href="#surrealpy.ws.event.EventManager.add_event">add_event</a></code></li>
+<li><code><a title="surrealpy.ws.event.EventManager.clear" href="#surrealpy.ws.event.EventManager.clear">clear</a></code></li>
+<li><code><a title="surrealpy.ws.event.EventManager.emit" href="#surrealpy.ws.event.EventManager.emit">emit</a></code></li>
+<li><code><a title="surrealpy.ws.event.EventManager.on" href="#surrealpy.ws.event.EventManager.on">on</a></code></li>
+<li><code><a title="surrealpy.ws.event.EventManager.remove_event" href="#surrealpy.ws.event.EventManager.remove_event">remove_event</a></code></li>
+</ul>
 </li>
 <li>
 <h4><code><a title="surrealpy.ws.event.Events" href="#surrealpy.ws.event.Events">Events</a></code></h4>

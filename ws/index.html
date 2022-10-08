@@ -613,7 +613,7 @@ class SurrealClientThread(SurrealClient):
     ----------
     url: str
         The url of the SurrealDB server
-    eventManager: Optional[event._EventManager]
+    eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
 
     Attributes
@@ -626,7 +626,7 @@ class SurrealClientThread(SurrealClient):
         The namespace of the database
     database: Optional[str]
         The database name
-    eventManager: Optional[event._EventManager]
+    eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
     Methods
     -------
@@ -672,7 +672,7 @@ class SurrealClientThread(SurrealClient):
         Decorator to register an event handler for the given event name or function name (if event is a function) to the EventManager and returns a function that can be used to unregister the event handler from the EventManager
     &#34;&#34;&#34;
 
-    def __init__(self, url: str, *, eventManager: Optional[event._EventManager] = None):
+    def __init__(self, url: str, *, eventManager: Optional[event.EventManager] = None):
         &#34;&#34;&#34;Initialize the SurrealClientThread instance.
 
         Parameters
@@ -687,7 +687,7 @@ class SurrealClientThread(SurrealClient):
         )
         self._lock = threading.Lock()
         self._responses: dict[str, Any] = {}
-        self._event_manager: event._EventManager = eventManager or event._EventManager()
+        self._event_manager: event.EventManager = eventManager or event.EventManager()
 
         self.on = self._event_manager.on
 
@@ -2219,7 +2219,7 @@ Parameters</p>
 </dd>
 <dt id="surrealpy.ws.SurrealClientThread"><code class="flex name class">
 <span>class <span class="ident">SurrealClientThread</span></span>
-<span>(</span><span>url: str, *, eventManager: Optional[surrealpy.ws.event._EventManager] = None)</span>
+<span>(</span><span>url: str, *, eventManager: Optional[<a title="surrealpy.ws.event.EventManager" href="event.html#surrealpy.ws.event.EventManager">EventManager</a>] = None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>A class used to represent SurrealClient
@@ -2229,7 +2229,7 @@ Parameters</p>
 <dl>
 <dt><strong><code>url</code></strong> :&ensp;<code>str</code></dt>
 <dd>The url of the SurrealDB server</dd>
-<dt><strong><code>eventManager</code></strong> :&ensp;<code>Optional[event._EventManager]</code></dt>
+<dt><strong><code>eventManager</code></strong> :&ensp;<code>Optional[<a title="surrealpy.ws.event.EventManager" href="event.html#surrealpy.ws.event.EventManager">EventManager</a>]</code></dt>
 <dd>The event manager of the client (optional) if you want to use custom event manager (default is None)</dd>
 </dl>
 <h2 id="attributes">Attributes</h2>
@@ -2242,7 +2242,7 @@ Parameters</p>
 <dd>The namespace of the database</dd>
 <dt><strong><code>database</code></strong> :&ensp;<code>Optional[str]</code></dt>
 <dd>The database name</dd>
-<dt><strong><code>eventManager</code></strong> :&ensp;<code>Optional[event._EventManager]</code></dt>
+<dt><strong><code>eventManager</code></strong> :&ensp;<code>Optional[<a title="surrealpy.ws.event.EventManager" href="event.html#surrealpy.ws.event.EventManager">EventManager</a>]</code></dt>
 <dd>The event manager of the client (optional) if you want to use custom event manager (default is None)</dd>
 </dl>
 <h2 id="methods">Methods</h2>
@@ -2307,7 +2307,7 @@ Decorator to register an event handler for the given event name or function name
     ----------
     url: str
         The url of the SurrealDB server
-    eventManager: Optional[event._EventManager]
+    eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
 
     Attributes
@@ -2320,7 +2320,7 @@ Decorator to register an event handler for the given event name or function name
         The namespace of the database
     database: Optional[str]
         The database name
-    eventManager: Optional[event._EventManager]
+    eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
     Methods
     -------
@@ -2366,7 +2366,7 @@ Decorator to register an event handler for the given event name or function name
         Decorator to register an event handler for the given event name or function name (if event is a function) to the EventManager and returns a function that can be used to unregister the event handler from the EventManager
     &#34;&#34;&#34;
 
-    def __init__(self, url: str, *, eventManager: Optional[event._EventManager] = None):
+    def __init__(self, url: str, *, eventManager: Optional[event.EventManager] = None):
         &#34;&#34;&#34;Initialize the SurrealClientThread instance.
 
         Parameters
@@ -2381,7 +2381,7 @@ Decorator to register an event handler for the given event name or function name
         )
         self._lock = threading.Lock()
         self._responses: dict[str, Any] = {}
-        self._event_manager: event._EventManager = eventManager or event._EventManager()
+        self._event_manager: event.EventManager = eventManager or event.EventManager()
 
         self.on = self._event_manager.on
 
