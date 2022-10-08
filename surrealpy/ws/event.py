@@ -8,9 +8,9 @@ from typing import Any, Callable, Optional, Union
 import uuid
 from .models import SurrealResponse
 
-__all__ = ("Event", "Events", "managers")
+__all__ = ("Event", "Events", "managers","EventManager")
 
-managers: dict[str, "_EventManager"] = {}
+managers: dict[str, "EventManager"] = {}
 
 
 class Events(enum.Enum):
@@ -51,6 +51,7 @@ class Event:
     """
     A class used to represent SurrealDB event.
     ...
+    
     Attributes
     ----------
     event: Events
@@ -74,7 +75,7 @@ class Event:
         return f"Event({self.event}, {self.response})"
 
 
-class _EventManager:
+class EventManager:
     """
     A class used to represent SurrealDB events manager.
     ...

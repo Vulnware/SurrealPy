@@ -9,7 +9,7 @@ from surrealpy.exceptions import SurrealError, WebSocketError
 from surrealpy.ws import event
 import atexit
 
-__all__ = ("SurrealClient",)
+__all__ = ("SurrealClient","SurrealClientThread")
 
 
 def unthread(func):
@@ -585,7 +585,7 @@ class SurrealClientThread(SurrealClient):
     ----------
     url: str
         The url of the SurrealDB server
-    eventManager: Optional[event._EventManager]
+    eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
 
     Attributes
@@ -598,7 +598,7 @@ class SurrealClientThread(SurrealClient):
         The namespace of the database
     database: Optional[str]
         The database name
-    eventManager: Optional[event._EventManager]
+    eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
     Methods
     -------
@@ -644,7 +644,7 @@ class SurrealClientThread(SurrealClient):
         Decorator to register an event handler for the given event name or function name (if event is a function) to the EventManager and returns a function that can be used to unregister the event handler from the EventManager
     """
 
-    def __init__(self, url: str, *, eventManager: Optional[event._EventManager] = None):
+    def __init__(self, url: str, *, eventManager: Optional[event.EventManager] = None):
         """Initialize the SurrealClientThread instance.
 
         Parameters
@@ -659,7 +659,7 @@ class SurrealClientThread(SurrealClient):
         )
         self._lock = threading.Lock()
         self._responses: dict[str, Any] = {}
-        self._event_manager: event._EventManager = eventManager or event._EventManager()
+        self._event_manager: event.EventManager = eventManager or event.EventManager()
 
         self.on = self._event_manager.on
 
