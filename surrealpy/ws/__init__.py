@@ -1,7 +1,8 @@
 import dataclasses
+import inspect
 import threading
 import time
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Tuple, Union
 from websocket import create_connection, WebSocket
 from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
 from surrealpy.utils import json_dumps, json_loads
@@ -9,7 +10,7 @@ from surrealpy.exceptions import SurrealError, WebSocketError
 from surrealpy.ws import event
 import atexit
 
-__all__ = ("SurrealClient","SurrealClientThread")
+__all__ = ("SurrealClient", "SurrealClientThread")
 
 
 def unthread(func):
@@ -128,17 +129,15 @@ class SurrealClient:
         """
         if url.startswith("http://"):
             url = url.replace("http://", "ws://")
-            url = "ws://" + url
         elif url.startswith("https://"):
             url = url.replace("https://", "wss://")
-            url = "wss://" + url
         self.__url: str = url
         self._ws: WebSocket
         self._counter: int = 0
         self._namespace: Optional[str] = None
         self._database: Optional[str] = None
         self._let_variables: list[str] = set()
-        atexit.register(self._atexit)
+        # atexit.register(self._atexit)
 
     def _atexit(self):
         """
@@ -212,7 +211,7 @@ class SurrealClient:
         """
         return self.__url
 
-    @unthread
+    # @unthread
     def connect(self) -> None:
         """
         Connect to the SurrealDB server.
@@ -222,6 +221,7 @@ class SurrealClient:
         WebSocketError
             If the connection is already established
         """
+
         if hasattr(self, "ws"):
             raise WebSocketError("Already connected")
         self._ws = create_connection(self.url)
@@ -267,7 +267,7 @@ class SurrealClient:
         return json_loads(self.ws.recv())
 
     @unthread
-    def _send(self, method: str, *params: Any) -> Any:
+    def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """
         Sends a request to the websocket server
 
@@ -393,8 +393,9 @@ class SurrealClient:
     def query(
         self,
         sql: str,
+        *,
         params: Union[dict[str, Any], list[Any], tuple[Any], set[Any]] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> SurrealResponse:
         """Query the SurrealDB server.
 
         Parameters
@@ -406,13 +407,12 @@ class SurrealClient:
 
         Returns
         -------
-        list[dict[str, Any]]
+        SurrealResponse
             The result of the query as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
         """
         if params is None:
             id, query_result = self._send("query", sql, params)
         elif isinstance(params, (list, tuple, set)):
-            print(sql.format(*params))
             id, query_result = self._send("query", sql.format(*params))
         elif isinstance(params, dict):
             id, query_result = self._send("query", sql.format(**params))
@@ -435,7 +435,7 @@ class SurrealClient:
         returnData = self._send("select", tid)
         return SurrealResponse(id=returnData[0], results=returnData[1])
 
-    def find_one(self, tid: str) -> Optional[SurrealResponse]:
+    def find_one(self, tid: str) -> SurrealResponse:
         """Find a document by its id or table name.
         Parameters
         ----------
@@ -444,18 +444,20 @@ class SurrealClient:
 
         Returns
         -------
-        Optional[SurrealResponse]
+        SurrealResponse
             The result of the query as a SurrealResponse object containing the results as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
+        # TODO: Will change documentation of return type
         response = self.find(tid)
         if len(response.results) == 0:
             return None
-        return response.results[0]
+        
+        return SurrealResponse(id=response.id,results=response.results[0])
 
     def create(
         self, tid: str, data: Union[Any, dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    ) -> SurrealResponse:
         """Create a document.
         Parameters
         ----------
@@ -470,7 +472,10 @@ class SurrealClient:
             The document(s) created as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("create", tid, data)[1]
+        # TODO: Will change documentation of return type
+
+        _id,result = self._send("create", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def update(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -489,7 +494,8 @@ class SurrealClient:
             The document(s) updated as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("update", tid, data)[id]
+        _id,result = self._send("update", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def change(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -508,7 +514,8 @@ class SurrealClient:
             The document(s) changed as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("change", tid, data)[1]
+        _id,result = self._send("change", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def modify(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -527,7 +534,8 @@ class SurrealClient:
             The document(s) modified as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("modify", tid, data)[1]
+        _id,result = self._send("modify", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def delete(self, tid: str) -> list[dict[str, Any]]:
         """Delete document(s) by given tid.
@@ -542,7 +550,8 @@ class SurrealClient:
             The document(s) deleted as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("delete", tid)[1]
+        _id,result = self._send("delete", tid)
+        return SurrealResponse(id=_id,results=result)
 
     @unthread
     def __enter__(self):
@@ -591,7 +600,7 @@ class SurrealClientThread(SurrealClient):
     Attributes
     ----------
     url: str
-        The url of the websocket server
+        The url of the websocket server (e.g: http://127.0.0.1:8000/rpc)
     ws: WebSocket
         The websocket connection
     namespace: Optional[str]
@@ -600,6 +609,7 @@ class SurrealClientThread(SurrealClient):
         The database name
     eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
+
     Methods
     -------
     connect() -> None:
@@ -704,7 +714,7 @@ class SurrealClientThread(SurrealClient):
             self._responses[response["id"]] = response
             self._event_manager.emit(event.Events.RECEIVED, response)
 
-    def _send(self, method: str, *params: Any) -> Any:
+    def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """
         Sends a request to the websocket server
 

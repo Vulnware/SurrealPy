@@ -3,12 +3,11 @@ import enum
 from functools import partial
 import queue
 import threading
-from types import NoneType
 from typing import Any, Callable, Optional, Union
 import uuid
 from .models import SurrealResponse
 
-__all__ = ("Event", "Events", "managers","EventManager")
+__all__ = ("Event", "Events", "managers", "EventManager")
 
 managers: dict[str, "EventManager"] = {}
 
@@ -51,7 +50,7 @@ class Event:
     """
     A class used to represent SurrealDB event.
     ...
-    
+
     Attributes
     ----------
     event: Events

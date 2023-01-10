@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Any, Optional, Union
 
-__all__ = ("SurrealRequest",)
+__all__ = ("SurrealRequest","SurrealResponse","LoginParams")
 
 
 @dataclasses.dataclass(frozen=True)

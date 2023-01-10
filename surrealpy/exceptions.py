@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 
 class BaseException(Exception):
@@ -34,8 +34,11 @@ class WebSocketError(SurrealError):
         message -- explanation of the error
     """
 
-    def __init__(self, message: dict[str, Any]):
-        self.message = f"{message['message']} ({message['code']})"
+    def __init__(self, message: Union[dict[str, Any], str]):
+        if type(message) == str:
+            self.message = "Uncaught: %s" % message
+        else:
+            self.message = f"{message['message']} ({message['code']})"
 
 
 class SurrealStatementHeadError(SurrealError):
