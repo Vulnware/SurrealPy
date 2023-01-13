@@ -1,8 +1,3 @@
-<<<<<<< Updated upstream
-import dataclasses
-import inspect
-=======
->>>>>>> Stashed changes
 import threading
 import time
 from typing import Any, Callable, Optional, Tuple, Union
@@ -219,9 +214,6 @@ class SurrealClient:
         """
         return self.__url
 
-<<<<<<< Updated upstream
-    # @unthread
-=======
     def info(self) -> Any:
         """
         The info about connected database connection
@@ -234,7 +226,6 @@ class SurrealClient:
         return self.query("INFO DB;")
 
     @unthread
->>>>>>> Stashed changes
     def connect(self) -> None:
         """
         Connect to the SurrealDB server.
@@ -244,12 +235,10 @@ class SurrealClient:
         WebSocketError
             If the connection is already established
         """
-<<<<<<< Updated upstream
 
-        if hasattr(self, "ws"):
-=======
+
+
         if hasattr(self, "ws") and self.ws.connected:
->>>>>>> Stashed changes
             raise WebSocketError("Already connected")
 
         self._ws = create_connection(self.url)
