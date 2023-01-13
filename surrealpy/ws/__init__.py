@@ -1,16 +1,14 @@
-import dataclasses
-import inspect
 import threading
 import time
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Tuple, Union
 from websocket import create_connection, WebSocket
 from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
 from surrealpy.utils import json_dumps, json_loads
-from surrealpy.exceptions import SurrealError, WebSocketError
+from surrealpy.exceptions import SurrealError, SurrealQLSyntaxError, WebSocketError
 from surrealpy.ws import event
 import atexit
 
-__all__ = ("SurrealClient","SurrealClientThread")
+__all__ = ("SurrealClient", "SurrealClientThread")
 
 
 def unthread(func):
@@ -54,6 +52,10 @@ def unthread(func):
         ), "This function is not thread safe"
 
         return func(*args, **kwargs)
+
+    # keep the name of the function and docstring for documentation
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__ or "Not Documented Yet"
 
     return wrapper
 
@@ -129,22 +131,21 @@ class SurrealClient:
         """
         if url.startswith("http://"):
             url = url.replace("http://", "ws://")
-            url = "ws://" + url
         elif url.startswith("https://"):
             url = url.replace("https://", "wss://")
-            url = "wss://" + url
         self.__url: str = url
         self._ws: WebSocket
         self._counter: int = 0
         self._namespace: Optional[str] = None
         self._database: Optional[str] = None
         self._let_variables: list[str] = set()
-        atexit.register(self._atexit)
+        # atexit.register(self._atexit)
 
     def _atexit(self):
         """
         This is a private function that is used to disconnect the websocket connection when the program exits. It is not recommended to use this function.
         """
+
         self.disconnect()
 
     def _count(self) -> str:
@@ -213,7 +214,6 @@ class SurrealClient:
         """
         return self.__url
 
-    # @unthread
     def info(self) -> Any:
         """
         The info about connected database connection
@@ -235,8 +235,12 @@ class SurrealClient:
         WebSocketError
             If the connection is already established
         """
+
+
+
         if hasattr(self, "ws") and self.ws.connected:
             raise WebSocketError("Already connected")
+
         self._ws = create_connection(self.url)
 
     @unthread
@@ -250,12 +254,11 @@ class SurrealClient:
             If the connection is not established
 
         """
-        if not hasattr(self, "ws"):
-            raise WebSocketError("Not connected")
-        elif self.ws.connected:
+        if hasattr(self, "ws") and self.ws.connected:
             self.ws.close()
+
         else:
-            raise WebSocketError("Not connected")
+            raise WebSocketError({"message": "Not connected", "code": -1})
 
     def _raw_send(self, request: SurrealRequest) -> dict[str, Any]:
         """
@@ -280,7 +283,7 @@ class SurrealClient:
         return json_loads(self.ws.recv())
 
     @unthread
-    def _send(self, method: str, *params: Any) -> Any:
+    def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """
         Sends a request to the websocket server
 
@@ -306,8 +309,11 @@ class SurrealClient:
         data = self.ws.recv()
         returnData = json_loads(data)
         if returnData.get("error") is not None:
-            raise WebSocketError(returnData["error"])
-
+            if returnData["error"]["code"] == -32000:
+                err = SurrealQLSyntaxError(returnData["error"]["message"], params[0])
+            else:
+                err = WebSocketError(returnData["error"])
+            raise err
         return returnData["id"], returnData["result"]
 
     def _clean_dict_params(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -349,7 +355,10 @@ class SurrealClient:
             The database name
 
         """
-        return self._send("use", namespace, database)[1]
+        returnData = self._send("use", namespace, database)[1]
+        self._namespace = namespace
+        self._database = database
+        return returnData
 
     def register(self, params: dict[str, Any]) -> str:
         """
@@ -406,8 +415,9 @@ class SurrealClient:
     def query(
         self,
         sql: str,
+        *,
         params: Union[dict[str, Any], list[Any], tuple[Any], set[Any]] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> SurrealResponse:
         """Query the SurrealDB server.
 
         Parameters
@@ -419,19 +429,18 @@ class SurrealClient:
 
         Returns
         -------
-        list[dict[str, Any]]
+        SurrealResponse
             The result of the query as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
         """
         if params is None:
             id, query_result = self._send("query", sql, params)
         elif isinstance(params, (list, tuple, set)):
-            print(sql.format(*params))
             id, query_result = self._send("query", sql.format(*params))
         elif isinstance(params, dict):
             id, query_result = self._send("query", sql.format(**params))
         else:
             raise TypeError("params must be a list, tuple, set or dict")
-        return SurrealResponse(id=id, results=[r["result"] for r in query_result])
+        return SurrealResponse(id=id, results=[r.get("result") for r in query_result])
 
     def find(self, tid: str) -> SurrealResponse:
         """Find documents by their ids or table name.
@@ -448,7 +457,7 @@ class SurrealClient:
         returnData = self._send("select", tid)
         return SurrealResponse(id=returnData[0], results=returnData[1])
 
-    def find_one(self, tid: str) -> Optional[SurrealResponse]:
+    def find_one(self, tid: str) -> SurrealResponse:
         """Find a document by its id or table name.
         Parameters
         ----------
@@ -457,18 +466,20 @@ class SurrealClient:
 
         Returns
         -------
-        Optional[SurrealResponse]
+        SurrealResponse
             The result of the query as a SurrealResponse object containing the results as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
+        # TODO: Will change documentation of return type
         response = self.find(tid)
         if len(response.results) == 0:
             return None
-        return response.results[0]
+        
+        return SurrealResponse(id=response.id,results=response.results[0])
 
     def create(
         self, tid: str, data: Union[Any, dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    ) -> SurrealResponse:
         """Create a document.
         Parameters
         ----------
@@ -483,7 +494,10 @@ class SurrealClient:
             The document(s) created as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("create", tid, data)[1]
+        # TODO: Will change documentation of return type
+
+        _id,result = self._send("create", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def update(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -502,7 +516,8 @@ class SurrealClient:
             The document(s) updated as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("update", tid, data)[id]
+        _id,result = self._send("update", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def change(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -521,7 +536,8 @@ class SurrealClient:
             The document(s) changed as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("change", tid, data)[1]
+        _id,result = self._send("change", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def modify(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -540,7 +556,8 @@ class SurrealClient:
             The document(s) modified as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("modify", tid, data)[1]
+        _id,result = self._send("modify", tid, data)
+        return SurrealResponse(id=_id,results=result)
 
     def delete(self, tid: str) -> list[dict[str, Any]]:
         """Delete document(s) by given tid.
@@ -555,7 +572,8 @@ class SurrealClient:
             The document(s) deleted as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
-        return self._send("delete", tid)[1]
+        _id,result = self._send("delete", tid)
+        return SurrealResponse(id=_id,results=result)
 
     @unthread
     def __enter__(self):
@@ -604,7 +622,7 @@ class SurrealClientThread(SurrealClient):
     Attributes
     ----------
     url: str
-        The url of the websocket server
+        The url of the websocket server (e.g: http://127.0.0.1:8000/rpc)
     ws: WebSocket
         The websocket connection
     namespace: Optional[str]
@@ -613,6 +631,7 @@ class SurrealClientThread(SurrealClient):
         The database name
     eventManager: Optional[event.EventManager]
         The event manager of the client (optional) if you want to use custom event manager (default is None)
+
     Methods
     -------
     connect() -> None:
@@ -717,7 +736,7 @@ class SurrealClientThread(SurrealClient):
             self._responses[response["id"]] = response
             self._event_manager.emit(event.Events.RECEIVED, response)
 
-    def _send(self, method: str, *params: Any) -> Any:
+    def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """
         Sends a request to the websocket server
 
@@ -758,7 +777,11 @@ class SurrealClientThread(SurrealClient):
             raise err
         if response.get("error") is not None:
             # If the response has an error, then raise the error and return None
-            err = WebSocketError(response["error"])
+            if response["error"]["code"] == -32000:
+                err = SurrealQLSyntaxError(response["error"]["message"], params[0])
+            else:
+                err = WebSocketError(response["error"])
+
             # Emit the error event
             self._event_manager.emit(
                 event.Events.ERROR,
@@ -779,14 +802,17 @@ class SurrealClientThread(SurrealClient):
         # check if thread is already running, if so, raise an error
         if self._receive_thread.is_alive():
             raise WebSocketError("Connection is already established")
-        self._ws = create_connection(self.url)
-        self._receive_thread.start()
-        self._event_manager.emit(
-            event.Events.CONNECTED,
-            event.Event(
-                event.Events.CONNECTED, response=SurrealResponse("-1", ("Connected",))
-            ),
-        )
+        if not hasattr(self, "_ws"):
+            # If the websocket is already initialized, then close it
+            self._ws = create_connection(self.url)
+            self._receive_thread.start()
+            self._event_manager.emit(
+                event.Events.CONNECTED,
+                event.Event(
+                    event.Events.CONNECTED,
+                    response=SurrealResponse("-1", ("Connected",)),
+                ),
+            )
 
     def login(self, params: Union[dict[str, Any], LoginParams]) -> None:
         """
@@ -847,15 +873,19 @@ class SurrealClientThread(SurrealClient):
         WebSocketError
             If the connection is already closed
         """
-        self._ws.close()
-        self._receive_thread.join()
-        self._event_manager.emit(
-            event.Events.DISCONNECTED,
-            event.Event(
+        if hasattr(self, "ws") and self.ws.connected:
+            self._ws.close()
+            self._receive_thread.join()
+            self._event_manager.emit(
                 event.Events.DISCONNECTED,
-                response=SurrealResponse("-1", ("Disconnected",)),
-            ),
-        )
+                event.Event(
+                    event.Events.DISCONNECTED,
+                    response=SurrealResponse("-1", ("Disconnected",)),
+                ),
+            )
+
+        else:
+            raise WebSocketError({"message": "Not connected", "code": -1})
 
     def __enter__(self):
         """Enter the context manager.
