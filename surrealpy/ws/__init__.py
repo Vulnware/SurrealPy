@@ -1,4 +1,5 @@
 import dataclasses
+import inspect
 import threading
 import time
 from typing import Any, Callable, Optional, Union
@@ -212,6 +213,18 @@ class SurrealClient:
         """
         return self.__url
 
+    # @unthread
+    def info(self) -> Any:
+        """
+        The info about connected database connection
+
+        Returns
+        -------
+        Any
+            The info about connected database connection
+        """
+        return self.query("INFO DB;")
+
     @unthread
     def connect(self) -> None:
         """
@@ -222,7 +235,7 @@ class SurrealClient:
         WebSocketError
             If the connection is already established
         """
-        if hasattr(self, "ws"):
+        if hasattr(self, "ws") and self.ws.connected:
             raise WebSocketError("Already connected")
         self._ws = create_connection(self.url)
 
