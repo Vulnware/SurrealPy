@@ -1,12 +1,15 @@
+<<<<<<< Updated upstream
 import dataclasses
 import inspect
+=======
+>>>>>>> Stashed changes
 import threading
 import time
 from typing import Any, Callable, Optional, Tuple, Union
 from websocket import create_connection, WebSocket
 from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
 from surrealpy.utils import json_dumps, json_loads
-from surrealpy.exceptions import SurrealError, WebSocketError
+from surrealpy.exceptions import SurrealError, SurrealQLSyntaxError, WebSocketError
 from surrealpy.ws import event
 import atexit
 
@@ -54,6 +57,10 @@ def unthread(func):
         ), "This function is not thread safe"
 
         return func(*args, **kwargs)
+
+    # keep the name of the function and docstring for documentation
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__ or "Not Documented Yet"
 
     return wrapper
 
@@ -143,6 +150,7 @@ class SurrealClient:
         """
         This is a private function that is used to disconnect the websocket connection when the program exits. It is not recommended to use this function.
         """
+
         self.disconnect()
 
     def _count(self) -> str:
@@ -211,7 +219,22 @@ class SurrealClient:
         """
         return self.__url
 
+<<<<<<< Updated upstream
     # @unthread
+=======
+    def info(self) -> Any:
+        """
+        The info about connected database connection
+
+        Returns
+        -------
+        Any
+            The info about connected database connection
+        """
+        return self.query("INFO DB;")
+
+    @unthread
+>>>>>>> Stashed changes
     def connect(self) -> None:
         """
         Connect to the SurrealDB server.
@@ -221,9 +244,14 @@ class SurrealClient:
         WebSocketError
             If the connection is already established
         """
+<<<<<<< Updated upstream
 
         if hasattr(self, "ws"):
+=======
+        if hasattr(self, "ws") and self.ws.connected:
+>>>>>>> Stashed changes
             raise WebSocketError("Already connected")
+
         self._ws = create_connection(self.url)
 
     @unthread
@@ -237,12 +265,11 @@ class SurrealClient:
             If the connection is not established
 
         """
-        if not hasattr(self, "ws"):
-            raise WebSocketError("Not connected")
-        elif self.ws.connected:
+        if hasattr(self, "ws") and self.ws.connected:
             self.ws.close()
+
         else:
-            raise WebSocketError("Not connected")
+            raise WebSocketError({"message": "Not connected", "code": -1})
 
     def _raw_send(self, request: SurrealRequest) -> dict[str, Any]:
         """
@@ -293,8 +320,11 @@ class SurrealClient:
         data = self.ws.recv()
         returnData = json_loads(data)
         if returnData.get("error") is not None:
-            raise WebSocketError(returnData["error"])
-
+            if returnData["error"]["code"] == -32000:
+                err = SurrealQLSyntaxError(returnData["error"]["message"], params[0])
+            else:
+                err = WebSocketError(returnData["error"])
+            raise err
         return returnData["id"], returnData["result"]
 
     def _clean_dict_params(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -336,7 +366,10 @@ class SurrealClient:
             The database name
 
         """
-        return self._send("use", namespace, database)[1]
+        returnData = self._send("use", namespace, database)[1]
+        self._namespace = namespace
+        self._database = database
+        return returnData
 
     def register(self, params: dict[str, Any]) -> str:
         """
@@ -418,7 +451,7 @@ class SurrealClient:
             id, query_result = self._send("query", sql.format(**params))
         else:
             raise TypeError("params must be a list, tuple, set or dict")
-        return SurrealResponse(id=id, results=[r["result"] for r in query_result])
+        return SurrealResponse(id=id, results=[r.get("result") for r in query_result])
 
     def find(self, tid: str) -> SurrealResponse:
         """Find documents by their ids or table name.
@@ -755,7 +788,11 @@ class SurrealClientThread(SurrealClient):
             raise err
         if response.get("error") is not None:
             # If the response has an error, then raise the error and return None
-            err = WebSocketError(response["error"])
+            if response["error"]["code"] == -32000:
+                err = SurrealQLSyntaxError(response["error"]["message"], params[0])
+            else:
+                err = WebSocketError(response["error"])
+
             # Emit the error event
             self._event_manager.emit(
                 event.Events.ERROR,
@@ -776,14 +813,17 @@ class SurrealClientThread(SurrealClient):
         # check if thread is already running, if so, raise an error
         if self._receive_thread.is_alive():
             raise WebSocketError("Connection is already established")
-        self._ws = create_connection(self.url)
-        self._receive_thread.start()
-        self._event_manager.emit(
-            event.Events.CONNECTED,
-            event.Event(
-                event.Events.CONNECTED, response=SurrealResponse("-1", ("Connected",))
-            ),
-        )
+        if not hasattr(self, "_ws"):
+            # If the websocket is already initialized, then close it
+            self._ws = create_connection(self.url)
+            self._receive_thread.start()
+            self._event_manager.emit(
+                event.Events.CONNECTED,
+                event.Event(
+                    event.Events.CONNECTED,
+                    response=SurrealResponse("-1", ("Connected",)),
+                ),
+            )
 
     def login(self, params: Union[dict[str, Any], LoginParams]) -> None:
         """
@@ -844,15 +884,19 @@ class SurrealClientThread(SurrealClient):
         WebSocketError
             If the connection is already closed
         """
-        self._ws.close()
-        self._receive_thread.join()
-        self._event_manager.emit(
-            event.Events.DISCONNECTED,
-            event.Event(
+        if hasattr(self, "ws") and self.ws.connected:
+            self._ws.close()
+            self._receive_thread.join()
+            self._event_manager.emit(
                 event.Events.DISCONNECTED,
-                response=SurrealResponse("-1", ("Disconnected",)),
-            ),
-        )
+                event.Event(
+                    event.Events.DISCONNECTED,
+                    response=SurrealResponse("-1", ("Disconnected",)),
+                ),
+            )
+
+        else:
+            raise WebSocketError({"message": "Not connected", "code": -1})
 
     def __enter__(self):
         """Enter the context manager.
