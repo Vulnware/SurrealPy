@@ -90,12 +90,18 @@ class SurrealDBHandler(threading.Thread):
         self.__process = sp.Popen(self.__parsedCommand)
         # read the output of the process and log it
         while self.__canrun:
-            output = self.__process.stdout.readline()
+            output = self.__process.stdout.readline().decode()
             if output == "" and self.__process.poll() is not None:
                 break
             if output:
                 logger.debug(output.strip())
-
+    def wait_until(self):
+        while True:
+            try:
+                self.__process.wait(timeout=0.1)
+                break
+            except sp.TimeoutExpired:
+                pass
     @property
     def uri(self):
         return self.__uri
@@ -137,6 +143,13 @@ class SurrealDBHandler(threading.Thread):
     @property
     def sql(self):
         return "{scheme}://{host}:{port}/sql".format(
+            scheme=self.scheme,
+            host=self.host,
+            port=self.port,
+        )
+    @property
+    def rpc(self):
+        return "{scheme}://{host}:{port}/rpc".format(
             scheme=self.scheme,
             host=self.host,
             port=self.port,

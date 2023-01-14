@@ -73,33 +73,31 @@ class Filter:
     def __str__(self) -> str:
         return self._filtered
     
-
-        
-            
-class OR:
-    def __init__(self,**kwargs) -> None:
-        if len(kwargs.keys()) > 1:
-            raise ValueError("OR can accept only one field query")
-        self.key = None
-        self.value = None
-        for key,value in  kwargs.items():
-            self.key,self.value = key,value
-            break
-        self.query = str(Filter(key,value))
-
-        
-    def __or__(self,other:"OR"):
-        if isinstance(other,OR):
-            self.query+=" OR %s"%self.query
+    def __or__(self,other:"Filter"):
+        if isinstance(other,Filter):
+            self._filtered = f"{self._filtered} OR {other._filtered}"
+            return self
         else:
-            raise TypeError("Waited 'OR' but instead got '%s'"%type(other).__name__)
-        return self
-    def __str__(self):
-        return self.query
-        
-class Table:
-    def __init__(self,tid: str):
-        self._query = Query()
+            raise TypeError("Waited 'Filter' but instead got '%s'"%type(other).__name__)
+    def __and__(self,other:"Filter"):
+        if isinstance(other,Filter):
+            self._filtered = f"{self._filtered} AND {other._filtered}"
+            return self
+        else:
+            raise TypeError("Waited 'Filter' but instead got '%s'"%type(other).__name__)
+
+class Group:
+    def __init__(self,*filters:Filter):
+        self._filters = filters
+    def __str__(self) -> str:
+        return " AND ".join([str(f) for f in self._filters])
+
+OR = Filter
+
+class Select:
+    def __init__(self,tid:str,fields: tuple[str]):
+        self._fields = fields
+        self._query = Query("SELECT %s FROM %s"%(", ".join([str(f) for f in fields]) or "*",tid))
         self._all_block = ":" in tid
         self.__select = None
         self.__where = None
@@ -117,45 +115,54 @@ class Table:
         return self._query.execute(client)
     def _block_wh(self):
         self.__where_block = True
-    def select(self,*fields):
-        if self.__select is not None:
-            return self
-        fields_str = ", ".join(fields) if len(fields) else "*"
-        self.__select = Query("SELECT %s FROM %s"%(fields_str,self.tid))
-        self._query += self.__select
-        return self
+    
     def where(self,*options: tuple[OR],**kwargs: dict[str,Any]):
         if self.__where_block:
             raise Exception("Where is blocked")
-        elif self.__select is None:
-            self.select()
-        filters = []
-        for key,value in kwargs.items():
-            filters.append(str(Filter(key,value)))
+        if len(options) == 0 and len(kwargs) == 0:
+            raise ValueError("No filter provided")
+            
         query = "WHERE "
-        query += " and ".join(filters)
+        queries = []
+        last_filter = None
+        for key,value in kwargs.items():
+            if last_filter is None:
+                last_filter = Filter(key,value)
+            else:
+                last_filter &= Filter(key,value)
+        if last_filter is not None:
+            queries += [last_filter]
         if len(options):
-            options_query = " OR ".join([str(o) for o in options])
-            query += " OR %s"%options_query
-        
+            for option in options:
+                if isinstance(option,Filter):
+                    queries += [option]
+                else:
+                    raise TypeError("Waited for 'Filter' but instead got '%s'"%type(option).__name__)
+        query += " AND ".join([str(item) for item in queries])
         self.__where = Query(query)
         self._query += self.__where
         return self
     def split(self,field:str):
-        self.select()
+        
         self._query+=Query("SPLIT %s"%field)
         self._block_wh()
         return self
-    def groupby(self,*fields):
-        self.select()
-        self._query += Query("GROUP BY %s"%(", ".join(fields)))
+    def group_by(self,*fields):
+        
+        self._query += Query("GROUP BY %s"%(", ".join([str(f) for f in fields])))
         self._block_wh()
         return self
     class Order(Enum):
         ASC="ASC"
         DESC="DESC"
-    def orderby(self,**fields: "Table.Order"):
-        self.select()
+    def order_by(self,*args,**fields: "Table.Order"):
+        if len(args) > 0:
+            order = ", ".join([str(i) for i in args])
+            self._query+=Query(f"ORDER BY {order}")
+            self._block_wh()
+            return self
+        
+        
         if len(fields.keys()) == 0:
             order = "RAND()"
         orders = [f"{field.replace('__','.')} {item.value}" for field,item in fields.items()]
@@ -164,10 +171,19 @@ class Table:
         self._block_wh()
         return self
     def limit(self,limit,startAt: Optional[int]=None):
-        self.select()
+        
         self._block_wh()
         self._query += Query(f"LIMIT {limit} {'START %d'%startAt if startAt is not None else ''}")
         return self
+    def __str__(self) -> str:
+        return self._query.query
+class Table:
+    id: Optional[str] = None
+    def __init__(self,id: str):
+        self.id = id
+    
+    def select(self,*fields: str) -> Select:
+        return Select(self.id,fields)
     
     def __repr__(self) -> str:
         return f"Query: {self._query}"

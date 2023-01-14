@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 import typing
 from surrealpy import utils
 
@@ -129,3 +129,12 @@ class SurrealQLSyntaxError(SurrealError):
 
         else:
             return super().__str__()
+
+class ValidationError(SurrealError):
+    """Exception raised for errors in the head of the statement.
+    Attributes:
+        message -- explanation of the error
+    """
+
+    def __init__(self, message):
+        self.message = message
