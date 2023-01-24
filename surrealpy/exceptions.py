@@ -114,7 +114,8 @@ class SurrealQLSyntaxError(SurrealError):
             # not finished yet but it works if line and index are given as parameters
             queryLines: typing.List[str] = self.query.split("\n")
             query: str = queryLines[self.line - 1]
-            lastAt = len(query) 
+            
+            lastAt = len(query)
             errorString = query[self.index : lastAt ]
             # replace original query's self.index to lastAt with errorString
             queryLines[self.line - 1] = (
@@ -127,7 +128,7 @@ class SurrealQLSyntaxError(SurrealError):
             query = "\n".join(queryLines)
             
             return (
-                f"{self.message} at line {self.line} and index {self.index}:\n{query}"
+                f"{self.message}:\n{query}"
             )
 
         else:
