@@ -67,3 +67,36 @@ def cpprint(
         If the color is not a valid color that termcolor supports.
     """
     cprint(pprint.pformat(obj), color, on_color, attrs, file=file, **kwargs)
+
+def escape_sql_params(param: typing.Union[str, int, float, bool, dict, list[any]]) -> typing.Union[str, int, float, bool, dict, list[any]]:
+    """
+    This will escape the parameter for use in a SQL query.
+
+    Parameters
+    ----------
+    param: typing.Union[str, int, float, bool]
+        The parameter to escape
+
+    Returns
+    -------
+    str
+        The escaped parameter
+
+    Raises
+    ------
+    TypeError
+        If the param is not a string, int, float, or bool
+    """
+    
+    if isinstance(param, dict):
+        copy = param.copy()
+        for key, value in param.items():
+            copy[key] = escape_sql_params(value)
+        return copy
+    elif isinstance(param, (list, tuple)):
+        copy = param.copy() if isinstance(param, list) else list(param)
+        for i, value in enumerate(param):
+            copy[i] = escape_sql_params(value)
+        return copy
+    else:
+        return json_dumps(param)

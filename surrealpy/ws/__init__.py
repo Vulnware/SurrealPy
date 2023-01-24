@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional, Tuple, Union
 import warnings
 from websocket import create_connection, WebSocket
 from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
-from surrealpy.utils import json_dumps, json_loads
+from surrealpy.utils import  escape_sql_params, json_dumps, json_loads
 from surrealpy.exceptions import SurrealError, SurrealQLSyntaxError, WebSocketError
 from surrealpy.ws import event
 import atexit
@@ -20,6 +20,7 @@ logger.addHandler(logging.NullHandler())
 
 __all__ = ("SurrealClient", "SurrealClientThread")
 
+RESPONSE_SLEEP_TIME = 0.001
 
 def unthread(func):
     """
@@ -446,9 +447,12 @@ class SurrealClient:
         if params is None:
             id, query_result = self._send("query", sql, params)
         elif isinstance(params, (list, tuple, set)):
-            id, query_result = self._send("query", sql.format(*params))
+            sql = sql.format(*escape_sql_params(params))
+            print(sql)
+            id, query_result = self._send("query", sql)
         elif isinstance(params, dict):
-            id, query_result = self._send("query", sql.format(**params))
+            sql = sql.format(**escape_sql_params(params))
+            id, query_result = self._send("query", sql )
         else:
             raise TypeError("params must be a list, tuple, set or dict")
         return SurrealResponse(id=id, result=[r.get("result") for r in query_result])
@@ -745,11 +749,16 @@ class SurrealClientThread(SurrealClient):
             response = json_loads(response)
             logger.debug(f"Received response: {response}")
             # Add the response to the responses dictionary
-            if "id" in response:
+            if response.get("id", None) is not None:
                 self._responses[response["id"]] = response
                 self._event_manager.emit(event.Events.RECEIVED, response)
+            elif "error" in response:
+                self._event_manager.emit(event.Events.ERROR, response)
+                raise WebSocketError(response["error"])
             else:
-                self._event_manager.emit(event.Events.LIVE, response)
+                # NOTE: Not fully implemented yet
+                # self._event_manager.emit(event.Events.LIVE, response) # Waiting for live query implementation in SurrealDB
+                raise Exception(f"Unknown error: %s" % json_dumps(response))
 
     def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """
@@ -776,7 +785,7 @@ class SurrealClientThread(SurrealClient):
         self._ws.send(json_dumps(request))
         # Wait for the response to be received
         while request.id not in self._responses:
-            time.sleep(0.01)
+            time.sleep(RESPONSE_SLEEP_TIME)
         # Get the response from the responses dictionary and remove it from the dictionary
         response = self._responses.pop(request.id, None)
         if response is None:
