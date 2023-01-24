@@ -104,13 +104,13 @@ class SurrealQLSyntaxError(SurrealError):
         self.message = message
         self.query = query
         match = SURREALQL_SYNTAX_REGEX.search(message)
-        print(match.group(1))
+        
         self.line = line or int(match.group(1)) if match else None
         self.index = index or int(match.group(2)) if match else None
 
     def __str__(self):
 
-        if self.line and self.index:
+        if self.line is not None and self.index is not None:
             # not finished yet but it works if line and index are given as parameters
             queryLines: typing.List[str] = self.query.split("\n")
             query: str = queryLines[self.line - 1]
