@@ -165,7 +165,7 @@ class SurrealCLI(cmd.Cmd):
     @passify_exception
     def do_execute(self, inp: str) -> None:
         """
-        Execute a query and return a list of results from the query result
+        Execute a query and return a list of result from the query result
 
         Usage: execute <query>
 
@@ -186,7 +186,7 @@ class SurrealCLI(cmd.Cmd):
                 "No active connection. Please connect to a database first."
             )
         responses: SurrealResponse = self.active_connection.query(inp)
-        for response in responses.results:
+        for response in responses.result:
             if response:
                 for i, result in enumerate(response):
                     if i + 1 >= 50:
@@ -201,7 +201,7 @@ class SurrealCLI(cmd.Cmd):
                         cprint(result, color="cyan")
                 cprint("-" * 80, color="yellow")
             else:
-                cprint("No results", color="red")
+                cprint("No result", color="red")
 
     def do_exc(self, inp: str) -> None:
         """

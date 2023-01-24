@@ -62,6 +62,25 @@ class Field:
         return self.__name + " DESC"
     def asc(self) -> str:
         return self.__name + " ASC"
+class StrictField(Field):
+    """
+    StrictField is base field for schema based documents
+    ...
+    
+    Attributes
+    ----------
+    default: Union[None,Any]
+        default value of the field if the field is not provided, if the default value is a callable it will be called when the field is not provided
+    null: bool
+        if the field can be null or not
+    validator: Union[None,Callable[[Any],bool]]
+        validator for the field, if the validator is not callable it will raise a TypeError
+    
+    
+    """
+    def __init__(self,*,default: Union[None,Any] = None,null: bool = False,validator: Union[None,Callable[[Any],bool]] = None):
+        raise NotImplementedError("StrictField is not implemented yet")
+    
 class Document(Table):
     __schema: Schema = None
     __fields: dict = {}

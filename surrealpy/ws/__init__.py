@@ -1,12 +1,22 @@
+import dataclasses
 import threading
 import time
 from typing import Any, Callable, Optional, Tuple, Union
+import warnings
 from websocket import create_connection, WebSocket
 from surrealpy.ws.models import LoginParams, SurrealRequest, SurrealResponse
 from surrealpy.utils import json_dumps, json_loads
 from surrealpy.exceptions import SurrealError, SurrealQLSyntaxError, WebSocketError
 from surrealpy.ws import event
 import atexit
+import logging
+
+logger = logging.getLogger("surrealpy.ws")
+# logger will work only if debug is enabled
+logger.setLevel(logging.DEBUG)
+# add null handler to logger to prevent errors 
+logger.addHandler(logging.NullHandler())
+
 
 __all__ = ("SurrealClient", "SurrealClientThread")
 
@@ -56,7 +66,7 @@ def unthread(func):
     # keep the name of the function and docstring for documentation
     wrapper.__name__ = func.__name__
     wrapper.__doc__ = func.__doc__ or "Not Documented Yet"
-
+    warnings.warn("This function is deprecated", DeprecationWarning)
     return wrapper
 
 
@@ -225,7 +235,7 @@ class SurrealClient:
         """
         return self.query("INFO DB;")
 
-    @unthread
+
     def connect(self) -> None:
         """
         Connect to the SurrealDB server.
@@ -243,7 +253,7 @@ class SurrealClient:
 
         self._ws = create_connection(self.url)
 
-    @unthread
+
     def disconnect(self) -> None:
         """
         Disconnects from the websocket server.
@@ -282,7 +292,7 @@ class SurrealClient:
         self.ws.send(json_dumps(request))
         return json_loads(self.ws.recv())
 
-    @unthread
+
     def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """
         Sends a request to the websocket server
@@ -305,7 +315,7 @@ class SurrealClient:
             The response from the SurrealDB server
         """
         request = SurrealRequest(id=self._count(), method=method, params=params)
-        self.ws.send(json_dumps(request))
+        self.ws.send(json_dumps(dataclasses.asdict(request)))
         data = self.ws.recv()
         returnData = json_loads(data)
         if returnData.get("error") is not None:
@@ -389,6 +399,7 @@ class SurrealClient:
         if isinstance(params, LoginParams):
             params = params.to_dict()
         clean_params = self._clean_dict_params(params)
+        logger.debug(clean_params)
         return self._send("signin", clean_params)[1]
 
     def invalidate(self) -> None:
@@ -440,7 +451,7 @@ class SurrealClient:
             id, query_result = self._send("query", sql.format(**params))
         else:
             raise TypeError("params must be a list, tuple, set or dict")
-        return SurrealResponse(id=id, results=[r.get("result") for r in query_result])
+        return SurrealResponse(id=id, result=[r.get("result") for r in query_result])
 
     def find(self, tid: str) -> SurrealResponse:
         """Find documents by their ids or table name.
@@ -452,10 +463,10 @@ class SurrealClient:
         Returns
         -------
         SurrealResponse
-            The result of the query as a SurrealResponse object containing the id of the query and the results as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
+            The result of the query as a SurrealResponse object containing the id of the query and the result as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
         """
         returnData = self._send("select", tid)
-        return SurrealResponse(id=returnData[0], results=returnData[1])
+        return SurrealResponse(id=returnData[0], result=returnData[1])
 
     def find_one(self, tid: str) -> SurrealResponse:
         """Find a document by its id or table name.
@@ -467,15 +478,15 @@ class SurrealClient:
         Returns
         -------
         SurrealResponse
-            The result of the query as a SurrealResponse object containing the results as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
+            The result of the query as a SurrealResponse object containing the result as a list of dictionaries (rows) with the column names as keys and the values as values of the dictionary (row)
 
         """
         # TODO: Will change documentation of return type
         response = self.find(tid)
-        if len(response.results) == 0:
+        if len(response.result) == 0:
             return None
         
-        return SurrealResponse(id=response.id,results=response.results[0])
+        return SurrealResponse(id=response.id,result=response.result[0])
 
     def create(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -497,7 +508,7 @@ class SurrealClient:
         # TODO: Will change documentation of return type
 
         _id,result = self._send("create", tid, data)
-        return SurrealResponse(id=_id,results=result)
+        return SurrealResponse(id=_id,result=result)
 
     def update(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -517,7 +528,7 @@ class SurrealClient:
 
         """
         _id,result = self._send("update", tid, data)
-        return SurrealResponse(id=_id,results=result)
+        return SurrealResponse(id=_id,result=result)
 
     def change(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -537,7 +548,7 @@ class SurrealClient:
 
         """
         _id,result = self._send("change", tid, data)
-        return SurrealResponse(id=_id,results=result)
+        return SurrealResponse(id=_id,result=result)
 
     def modify(
         self, tid: str, data: Union[Any, dict[str, Any]]
@@ -557,7 +568,7 @@ class SurrealClient:
 
         """
         _id,result = self._send("modify", tid, data)
-        return SurrealResponse(id=_id,results=result)
+        return SurrealResponse(id=_id,result=result)
 
     def delete(self, tid: str) -> list[dict[str, Any]]:
         """Delete document(s) by given tid.
@@ -573,9 +584,9 @@ class SurrealClient:
 
         """
         _id,result = self._send("delete", tid)
-        return SurrealResponse(id=_id,results=result)
+        return SurrealResponse(id=_id,result=result)
 
-    @unthread
+
     def __enter__(self):
         """Enter the context manager.
 
@@ -732,9 +743,13 @@ class SurrealClientThread(SurrealClient):
                 continue
             # Parse the response as a dictionary
             response = json_loads(response)
+            logger.debug(f"Received response: {response}")
             # Add the response to the responses dictionary
-            self._responses[response["id"]] = response
-            self._event_manager.emit(event.Events.RECEIVED, response)
+            if "id" in response:
+                self._responses[response["id"]] = response
+                self._event_manager.emit(event.Events.RECEIVED, response)
+            else:
+                self._event_manager.emit(event.Events.LIVE, response)
 
     def _send(self, method: str, *params: Any) -> Tuple[Union[int,str],Union[list,dict]]:
         """

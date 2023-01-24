@@ -16,7 +16,7 @@ def create():
     table = "user"
     data = {"username":"bilinenkisi","email":"bilinenkisi@example.com"}
     response = client.create(table, data)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def create_with_id():
@@ -27,21 +27,21 @@ def create_with_id():
     tid = "user:customidhere" # To specify id you should add ":" after table and then write custom id
     data = {"username":"test","email":"test@example.com"}
     response = client.create(tid, data)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def find_all():
     """Fetch all records from a table."""
     table = "user"
     response = client.find(table)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def find_one():
     """Query a table for a specific record by the record's tid."""
     tid = "user:customidhere"
     response = client.find_one(tid)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def update_one():
@@ -49,7 +49,7 @@ def update_one():
     tid = "user:customidhere"
     new_data = {"username":"test_updated","email":"test_updated@example.com"}
     response = client.update(tid, new_data)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def upsert_one():
@@ -57,7 +57,7 @@ def upsert_one():
     tid = "user:customidhere"
     partial_new_data = {"email":"test_updated@example.com", "notexistfield": "nowitisexist"}
     response = client.update(tid, partial_new_data)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def delete_all():
@@ -76,7 +76,7 @@ def execute_custom_query():
     """Execute a custom query."""
     query = "SELECT * FROM user"
     response = client.query(query)
-    pprint(response.results)
+    pprint(response.result)
 
 
 def run_all():

@@ -1,7 +1,9 @@
+import re
 from typing import Any, Union
 import typing
 from surrealpy import utils
 
+SURREALQL_SYNTAX_REGEX = re.compile(r"line (\d+) at character (\d+)")
 
 
 class BaseException(Exception):
@@ -101,8 +103,10 @@ class SurrealQLSyntaxError(SurrealError):
     ):
         self.message = message
         self.query = query
-        self.line = line
-        self.index = index
+        match = SURREALQL_SYNTAX_REGEX.search(message)
+        print(match.group(1))
+        self.line = line or int(match.group(1)) if match else None
+        self.index = index or int(match.group(2)) if match else None
 
     def __str__(self):
 
@@ -110,10 +114,8 @@ class SurrealQLSyntaxError(SurrealError):
             # not finished yet but it works if line and index are given as parameters
             queryLines: typing.List[str] = self.query.split("\n")
             query: str = queryLines[self.line - 1]
-            lastAt = query[self.index :].find(" ")
-            if lastAt == -1:
-                lastAt = len(query)
-            errorString = query[self.index : lastAt]
+            lastAt = len(query) 
+            errorString = query[self.index : lastAt ]
             # replace original query's self.index to lastAt with errorString
             queryLines[self.line - 1] = (
                 query[: self.index] + utils.colored(errorString, "red") + query[lastAt:]
@@ -123,6 +125,7 @@ class SurrealQLSyntaxError(SurrealError):
                 self.line - 1
             ] = f"{queryLines[self.line-1]}\n{' '*self.index}{utils.colored('^'*len(errorString),'cyan')}"
             query = "\n".join(queryLines)
+            
             return (
                 f"{self.message} at line {self.line} and index {self.index}:\n{query}"
             )

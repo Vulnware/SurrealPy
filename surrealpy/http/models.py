@@ -12,7 +12,7 @@ class Result:
 
 @dataclasses.dataclass(frozen=True)
 class SurrealResponse:
-    results: list[Result]
+    result: list[Result]
 
 
 def to_json(obj):

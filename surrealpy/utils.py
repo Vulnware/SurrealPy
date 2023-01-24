@@ -1,3 +1,4 @@
+import dataclasses
 import pprint
 import typing
 from termcolor import cprint, colored, COLORS
@@ -23,8 +24,8 @@ try:
     json_loads = orjson.loads
 except ImportError:
     import json
-
-    json_dumps = json.dumps
+    
+    json_dumps = lambda obj: json.dumps(dataclasses.asdict(obj), indent=4, sort_keys=True) if dataclasses.is_dataclass(obj) else json.dumps(obj, indent=4, sort_keys=True)
     json_loads = json.loads
 
 

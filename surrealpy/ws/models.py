@@ -50,5 +50,5 @@ class SurrealRequest:
 
 @dataclasses.dataclass(frozen=True)
 class SurrealResponse:
-    id: str
-    results: Union[dict, list[Any]]
+    result: Union[dict, list[Any]]
+    id: Optional[str] = None

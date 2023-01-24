@@ -44,7 +44,7 @@ class Events(enum.Enum):
     USE = "use"  # Implemented
     RECEIVED = "received"  # Implemented
     ERROR = "error"  # Not Completely Implemented
-
+    LIVE = "live"  # Not Implemented wait for live queries to be implemented in SurrealDB
 
 class Event:
     """
@@ -108,6 +108,7 @@ class EventManager:
         self._event_queue = queue.Queue()
         self._event_thread = threading.Thread(target=self._handle_events, daemon=True)
         self._event_thread.start()
+        self._listen_queue = queue.Queue()
         # iterates over all events and adds them to the events manager with the default callback function
         for name, func in self.__class__.__dict__.items():
 
@@ -195,7 +196,28 @@ class EventManager:
                     self._async_loop.run_until_complete(callback(data))
                 else:
                     self._event_queue.put(partial(callback, data))
-
+            
+        self._listen_queue.put(data)
+    def listen(self, event: str):
+        """
+        Listen to an event. yield the event when it is emitted. 
+        Parameters
+        ----------
+        event: str
+            The event name
+        
+        """
+        if isinstance(event, Events):
+            event = event.value
+        while True:
+            data = self._listen_queue.get()
+            if isinstance(data, dict):
+                print(data)
+                data = Event(event, SurrealResponse(**data))
+            if data.event == event:
+                yield data
+        
+        
     def on(self, event: Union[str, Callable[[Event], None]]) -> Callable:
         """
         A decorator to add an event to the events manager.
