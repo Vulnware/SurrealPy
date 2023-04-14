@@ -111,6 +111,9 @@ class Select:
             self.tid = tid
         else:
             raise TypeError("Waited for 'str' but instead got '%s'"%type(self.tid).__name_)
+    @property
+    def query(self):
+        return self._query
     def execute(self,client = None):
         return self._query.execute(client)
     def _block_wh(self):

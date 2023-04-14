@@ -10,6 +10,7 @@ from surrealpy.exceptions import SurrealError, SurrealQLSyntaxError, WebSocketEr
 from surrealpy.ws import event
 import atexit
 import logging
+import queue  # noqa: F401 # pylint: disable=unused-import
 
 logger = logging.getLogger("surrealpy.ws")
 # logger will work only if debug is enabled
@@ -19,8 +20,6 @@ logger.addHandler(logging.NullHandler())
 
 
 __all__ = ("SurrealClient", "SurrealClientThread")
-
-RESPONSE_SLEEP_TIME = 0.001
 
 def unthread(func):
     """
@@ -140,6 +139,8 @@ class SurrealClient:
         url : str
             The url of the websocket server
         """
+        warnings.warn("This class is deprecated instead use SurrealClientThread which will be referred  as SurrealClient also", DeprecationWarning)
+        print("This class is deprecated instead use SurrealClientThread which will be referred as SurrealClient also")
         if url.startswith("http://"):
             url = url.replace("http://", "ws://")
         elif url.startswith("https://"):
@@ -707,6 +708,7 @@ class SurrealClientThread(SurrealClient):
         self._lock = threading.Lock()
         self._responses: dict[str, Any] = {}
         self._event_manager: event.EventManager = eventManager or event.EventManager()
+        self._queue: dict[str, queue.Queue] = {} # Used to store the queues for each request id
 
         self.on = self._event_manager.on
 
@@ -750,7 +752,8 @@ class SurrealClientThread(SurrealClient):
             logger.debug(f"Received response: {response}")
             # Add the response to the responses dictionary
             if response.get("id", None) is not None:
-                self._responses[response["id"]] = response
+                # self._responses[response["id"]] = response
+                self._queue[response["id"]].put_nowait(response) # Put the response to the queue of the request id
                 self._event_manager.emit(event.Events.RECEIVED, response)
             elif "error" in response:
                 self._event_manager.emit(event.Events.ERROR, response)
@@ -782,12 +785,10 @@ class SurrealClientThread(SurrealClient):
             The response from the SurrealDB server
         """
         request = SurrealRequest(id=self._count(), method=method, params=params)
+        self._queue[request.id] = queue.Queue() # Create a queue for the request id
         self._ws.send(json_dumps(request))
         # Wait for the response to be received
-        while request.id not in self._responses:
-            time.sleep(RESPONSE_SLEEP_TIME)
-        # Get the response from the responses dictionary and remove it from the dictionary
-        response = self._responses.pop(request.id, None)
+        response = self._queue[request.id].get()
         if response is None:
             # If the response is None, then the connection has been closed
             err = SurrealError("Response is None")
@@ -921,3 +922,6 @@ class SurrealClientThread(SurrealClient):
         """
         self.connect()
         return self
+
+Client = SurrealClientThread # Alias for the SurrealClientThread class for backwards compatibility with the old version of SurrealDB
+DeprecatedClient = SurrealClient # Alias for the SurrealClient class for backwards compatibility with the old version of SurrealDB

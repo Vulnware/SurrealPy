@@ -991,3 +991,5 @@ class Client:
         Disconnect from the database. If the connection is already closed, raise an exception. If the connection is not closed, close the connection.
         """
         await self.__session.aclose()
+
+__all__ = ["Client","AsyncClient"]
